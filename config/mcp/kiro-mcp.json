@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": [
+        "browser-use-mcp"
+      ]
+    },
+    "vibe-kanban": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "vibe-kanban",
+        "--mcp"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
+    }
+  }
+}

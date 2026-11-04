@@ -1,0 +1,11 @@
+version: "0.3"
+signals:
+  complexity:
+    type: classification
+    labels: ["TRIVIAL", "STANDARD", "COMPLEX_CODE", "DEEP_ARCH"]
+  has_frontend_ui:
+    type: boolean
+    description: "True if the task creates or modifies visual UI components, pages, HTML/CSS, or React views."
+  project_domain:
+    type: classification
+    labels: ["UNIVERSITY_C_CPP_CSHARP", "FULLSTACK_WEB", "DOCS_ONLY"]

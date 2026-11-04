@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+Smart Agent: Semantic Router & Multi-CLI Orchestrator for the Autonomous SDD Pipeline.
+Manages 5-hour sliding-window quotas, intelligent model selection across 4 AI pools,
+mandatory UI mockup prompt injection, and multi-tier fallback resilience.
+"""
+import sys
+import os
+import re
+import json
+import time
+import subprocess
+import urllib.request
+from pathlib import Path
+
+QUOTA_FILE = Path.home() / ".pipeline_quotas.json"
+ROUTER_URL = os.environ.get("VLLM_SR_URL", "http://127.0.0.1:8080/v1/route")
+
+# Ensure user toolchains are in PATH and GitHub token is exported
+env = os.environ.copy()
+user_home = str(Path.home())
+extra_paths = [f"{user_home}/.local/bin", f"{user_home}/.cargo/bin", "/usr/local/bin"]
+for p in extra_paths:
+    if p not in env.get("PATH", ""):
+        env["PATH"] = f"{p}:{env.get('PATH', '')}"
+
+if "GH_TOKEN" not in env:
+    try:
+        t = subprocess.check_output(["gh", "auth", "token"], env=env, stderr=subprocess.DEVNULL).decode().strip()
+        if t:
+            env["GH_TOKEN"] = t
+    except Exception:
+        pass
+
+LIMITS = {
+    "agy_anthropic_5h_max": int(os.environ.get("AGY_ANTHROPIC_5H_MAX", 12)),
+    "agy_google_pro_5h_max": int(os.environ.get("AGY_GOOGLE_PRO_5H_MAX", 25)),
+    "kiro_monthly_credits_max": float(os.environ.get("KIRO_MONTHLY_CREDITS_MAX", 950.0))
+}
+
+# Credit cost multipliers in AWS Kiro CLI
+COST_MULTIPLIERS = {
+    "claude-haiku-4.5": 0.40,
+    "qwen3-coder-next": 0.05,
+    "deepseek-3.2": 0.25,
+    "minimax-m2.5": 0.25,
+    "minimax-m2.1": 0.15,
+    "glm-5": 0.50,
+    "auto": 1.00,
+    "claude-sonnet-4.5": 1.30,
+    # Semantic aliases
+    "haiku-5.5": 0.40,
+    "luna": 0.25,
+    "sonnet": 1.30,
+    "opus": 1.30
+}
+
+# Mapping from semantic model identifiers to runtime binaries on Linux ARM64
+MODEL_MAP_AGY = {
+    "gemini-3.8-flash": "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-low": "gemini-3.8-flash-low",
+    "gemini-3.1-pro": "gemini-4-argon-medium",
+    "gemini-4-argon": "gemini-4-argon-medium",
+    "claude-sonnet-5.5": "claude-sonnet-5-5-medium",
+    "claude-opus-5.5": "claude-opus-5-5-medium"
+}
+
+MODEL_MAP_KIRO = {
+    "haiku-5.5": "claude-haiku-4.5",
+    "claude-haiku-4.5": "claude-haiku-4.5",
+    "luna": "deepseek-3.2",
+    "deepseek-3.2": "deepseek-3.2",
+    "qwen": "qwen3-coder-next",
+    "qwen3-coder-next": "qwen3-coder-next",
+    "sonnet": "claude-sonnet-4.5",
+    "claude-sonnet-4.5": "claude-sonnet-4.5",
+    "auto": "auto"
+}
+
+def load_quotas():
+    now = time.time()
+    if not QUOTA_FILE.exists():
+        return {"window_start": now, "agy_anthropic_5h": 0, "agy_google_pro_5h": 0, "kiro_credits_used": 0.0}
+    try:
+        data = json.loads(QUOTA_FILE.read_text())
+    except Exception:
+        data = {"window_start": now, "agy_anthropic_5h": 0, "agy_google_pro_5h": 0, "kiro_credits_used": 0.0}
+
+    # 5-hour sliding window reset (18,000 seconds)
+    if now - data.get("window_start", now) > 18000:
+        data["window_start"] = now
+        data["agy_anthropic_5h"] = 0
+        data["agy_google_pro_5h"] = 0
+    return data
+
+def save_quotas(data):
+    try:
+        QUOTA_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to persist quota state: {e}", file=sys.stderr)
+
+def classify_task(prompt_text):
+    """
+    Classifies the incoming task by querying the vLLM Semantic Router (vllm-sr) daemon
+    or falling back to a zero-latency deterministic local regex classifier (EN + PT-BR).
+    """
+    try:
+        req = urllib.request.Request(
+            ROUTER_URL,
+            data=json.dumps({"text": prompt_text}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        # High-precision zero-latency local heuristic fallback (Bilingual EN / PT-BR)
+        ui_keywords = (
+            "screen", "ui", "react", "css", "layout", "frontend", "button", "page",
+            "html", "mockup", "view", "visual", "component", "tailwind", "widget",
+            "tela", "botão", "botao", "pagina", "página", "componente"
+        )
+        complex_keywords = (
+            "refactor", "architecture", "migration", "database", "security", "algorithm",
+            "parallel", "concurrency", "kernel", "optimization", "thread", "distributed",
+            "arquitetura", "migração", "migracao", "banco", "segurança", "seguranca",
+            "algoritmo", "paralelo", "concorrência", "concorrencia", "otimização", "otimizacao"
+        )
+        trivial_keywords = (
+            "fix typo", "typo", "readme", "comment", "checklist", "rename", "log",
+            "clean", "format", "formatting",
+            "corrija typo", "comentário", "comentario", "renomear", "formatar", "formatação"
+        )
+
+        text_lower = prompt_text.lower()
+        has_ui = any(re.search(rf"\b{re.escape(k)}\b", text_lower) for k in ui_keywords)
+
+        if any(re.search(rf"\b{re.escape(k)}\b", text_lower) for k in trivial_keywords):
+            complexity = "TRIVIAL"
+        elif any(re.search(rf"\b{re.escape(k)}\b", text_lower) for k in complex_keywords):
+            complexity = "COMPLEX_CODE"
+        else:
+            complexity = "STANDARD"
+
+        domain = "DOCS_ONLY"
+        if has_ui or any(re.search(rf"\b{re.escape(k)}\b", text_lower) for k in ("node", "npm", "js", "ts", "typescript", "fullstack", "react", "next", "flask", "fastapi")):
+            domain = "FULLSTACK_WEB"
+        elif any(re.search(rf"\b{re.escape(k)}\b", text_lower) for k in ("c++", "c#", "dotnet", "gcc", "pointer", "ponteiro", "struct", "class", "algorithm", "algoritmo", "concurrency", "concorrência", "database", "banco")):
+            domain = "UNIVERSITY_C_CPP_CSHARP"
+
+        return {
+            "complexity": complexity,
+            "has_frontend_ui": has_ui,
+            "project_domain": domain
+        }
+
+def select_engine(stage, prompt_text, quotas):
+    route = classify_task(prompt_text)
+    comp = route.get("complexity", "STANDARD")
+
+    # Visual QA and UI Mockup stages use high-quota multimodal Flash
+    if stage in ["QA_VISUAL", "UI_MOCKUP"]:
+        return ("agy", "gemini-3.8-flash", route)
+
+    if comp == "TRIVIAL":
+        if quotas["kiro_credits_used"] < LIMITS["kiro_monthly_credits_max"]:
+            return ("kiro", "haiku-5.5", route)
+        return ("agy", "gemini-3.8-flash", route)
+
+    if comp == "STANDARD":
+        if quotas["agy_google_pro_5h"] < LIMITS["agy_google_pro_5h_max"]:
+            return ("agy", "gemini-3.1-pro", route)
+        if quotas["kiro_credits_used"] < LIMITS["kiro_monthly_credits_max"]:
+            return ("kiro", "luna", route)
+        return ("agy", "gemini-3.8-flash", route)
+
+    if comp == "COMPLEX_CODE":
+        if quotas["agy_anthropic_5h"] < LIMITS["agy_anthropic_5h_max"]:
+            return ("agy", "claude-sonnet-5.5", route)
+        if quotas["agy_google_pro_5h"] < LIMITS["agy_google_pro_5h_max"]:
+            return ("agy", "gemini-4-argon", route)
+        return ("kiro", "sonnet", route)
+
+    # DEEP_ARCH
+    if quotas["agy_anthropic_5h"] < LIMITS["agy_anthropic_5h_max"]:
+        return ("agy", "claude-opus-5.5", route)
+    return ("agy", "gemini-4-argon", route)
+
+def run():
+    dry_run = "--dry-run" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--dry-run"]
+
+    stage = args[0] if len(args) > 0 else "STANDARD"
+    prompt = args[1] if len(args) > 1 else (sys.stdin.read() if not sys.stdin.isatty() else "")
+
+    if not prompt:
+        print("Usage: smart-agent [--dry-run] <STAGE> '<prompt>' or via stdin", file=sys.stderr)
+        sys.exit(1)
+
+    quotas = load_quotas()
+    cli, model, route_meta = select_engine(stage, prompt, quotas)
+
+    # Mandatory UI mockup rule injection for frontend tasks
+    if stage in ["SPEC", "BRIEFING"] and route_meta.get("has_frontend_ui"):
+        prompt += (
+            "\n\n[ACTIVE UI RULE]: This task has visual frontend impact. "
+            "In addition to the standard OpenSpec artifacts, you MUST create a self-contained interactive prototype "
+            "at `openspec/changes/<id>/ui-mockup.html` (using Tailwind CSS via CDN) for human visual approval."
+        )
+
+    print(f"⚡ [Smart-Agent Router] Stage={stage} | Complexity={route_meta.get('complexity')} | Domain={route_meta.get('project_domain')} | UI={route_meta.get('has_frontend_ui')} -> CLI={cli} ({model})")
+
+    if dry_run:
+        print(f"[DRY-RUN] Simulation completed successfully. Selected CLI: {cli}, Model: {model}")
+        return
+
+    # Primary CLI Execution
+    success = False
+    if cli == "agy":
+        actual_model = MODEL_MAP_AGY.get(model, model)
+        cmd = ["agy", "-p", prompt, "--model", actual_model, "--dangerously-skip-permissions"]
+        res = subprocess.run(cmd, env=env)
+        if res.returncode == 0:
+            success = True
+            if "claude" in actual_model:
+                quotas["agy_anthropic_5h"] += 1
+            elif "flash" not in actual_model:
+                quotas["agy_google_pro_5h"] += 1
+    else:
+        actual_model = MODEL_MAP_KIRO.get(model, model)
+        cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--model", actual_model, prompt]
+        res = subprocess.run(cmd, env=env)
+        if res.returncode == 0:
+            success = True
+            quotas["kiro_credits_used"] += COST_MULTIPLIERS.get(model, 0.40)
+
+    save_quotas(quotas)
+
+    # Cascading Fallback if primary CLI hits rate limits or fails
+    if not success:
+        print("⚠️ Primary CLI failed or hit rate limit. Triggering Tier-1 Fallback (AWS Kiro CLI - Claude Haiku 4.5)...")
+        fb_kiro = subprocess.run(
+            ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--model", "claude-haiku-4.5", prompt],
+            env=env
+        )
+        if fb_kiro.returncode == 0:
+            quotas["kiro_credits_used"] += 0.40
+            save_quotas(quotas)
+        else:
+            print("⚠️ Tier-1 Fallback failed. Triggering Tier-2 Emergency Fallback (GitHub Copilot CLI)...")
+            subprocess.run(["copilot", "-p", prompt, "-s", "--allow-all"], env=env)
+
+if __name__ == "__main__":
+    run()

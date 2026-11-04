@@ -1,0 +1,59 @@
+{
+  "executors": {
+    "CLAUDE_CODE": {
+      "DEFAULT": {
+        "CLAUDE_CODE": {
+          "dangerously_skip_permissions": true
+        }
+      }
+    },
+    "GEMINI": {
+      "DEFAULT": {
+        "GEMINI": {
+          "yolo": true
+        }
+      }
+    },
+    "COPILOT": {
+      "DEFAULT": {
+        "COPILOT": {
+          "allow_all_tools": true
+        }
+      }
+    }
+  },
+  "profiles": [
+    {
+      "name": "1. Briefing (Gate 1)",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "BRIEFING",
+        "Read the card request carefully. If there is critical ambiguity, list objective clarifying questions. Otherwise, create ONLY the file `openspec/changes/<slug>/proposal.md` containing: Executive Summary, In-Scope, Out-of-Scope, Formal EARS Requirements, and Planned Stages. Do NOT generate code or full specs yet. Stop for Human Gate 1 review."
+      ]
+    },
+    {
+      "name": "2. Spec + Visual Mockup (Gate 2)",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "SPEC",
+        "The `proposal.md` has been approved at Gate 1. Execute `/opsx:propose` to generate `specs/`, `tasks.md`, and (only if the task requires architectural changes) `design.md`. If `has_frontend_ui` is active, also generate the self-contained interactive `ui-mockup.html` using Tailwind CSS via CDN. Validate strictly with `openspec validate --strict` and stop for Human Gate 2 review."
+      ]
+    },
+    {
+      "name": "3. Implement Code (/opsx:apply)",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "APPLY",
+        "The specifications and visual mockup have been approved at Gate 2. Execute `/opsx:apply` by sequentially implementing each checklist item in `tasks.md`. After each item, run the domain's local Zero-Token compiler/test gate (`gcc`/`make`, `dotnet test`, `pytest`, or `npx tsc --noEmit`) until exit code 0 is achieved, then mark `[x]` in `tasks.md`."
+      ]
+    },
+    {
+      "name": "4. Visual QA & Verification (/opsx:verify)",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "QA_VISUAL",
+        "Start the application server via `dev-manager-mcp`. Using Playwright MCP and Browser-Use MCP, navigate to the live URL, execute the user flows defined in the EARS scenarios of `specs/`, and visually compare the rendered layout against `ui-mockup.html`. Save desktop/mobile screenshots and console/network logs in `openspec/changes/<slug>/qa-report.md`. If bugs are detected, fix and re-test (max 2 self-healing loops)."
+      ]
+    }
+  ]
+}

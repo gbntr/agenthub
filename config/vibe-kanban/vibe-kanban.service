@@ -1,0 +1,17 @@
+[Unit]
+Description=Vibe Kanban Service (Headless Git Worktree & Agent Orchestrator)
+After=network.target tailscaled.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+Environment="PORT=3000"
+Environment="HOST=0.0.0.0"
+Environment="PATH=/home/ubuntu/.local/bin:/home/ubuntu/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/local/bin/vibe-kanban
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
