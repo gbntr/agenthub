@@ -265,10 +265,14 @@ agenthub/
 │   └── openspec/
 │       └── project.md                 # Master OpenSpec constitution (EARS syntax & Zero-Token Gates)
 │
+├── examples/                          # Homologated real-world pilot repositories
+│   └── pipeline-pilot/                # Complete working SDD pilot with specs, mockups & QA reports
+│
 └── docs/                              # In-depth technical documentation
     ├── architecture.md                # State machine, Git Worktree isolation & Tailscale mesh topology
     ├── quota-arbitration.md           # 4-Pool routing matrix, Kiro credit multipliers & 5h sliding window
     ├── zero-token-gates.md            # Domain-specific compiler gates & Playwright MCP Visual QA flow
+    ├── e2e-walkthrough.md             # End-to-end homologation evidence & 5-stage execution report
     └── setup-guide.md                 # Step-by-step cloud VM provisioning guide (Waves 1 to 5)
 ```
 
@@ -334,6 +338,7 @@ For deeper technical specifications, explore the `docs/` directory:
 - **[Architecture & State Machine (`docs/architecture.md`)](./docs/architecture.md)** — Detailed breakdown of Git Worktree isolation, the 5-stage SDD lifecycle, OpenSpec directory contracts, and Tailscale zero-trust networking.
 - **[Semantic Quota Arbitrage (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Complete routing matrix, Kiro credit multipliers (`0.05x` to `1.30x`), 5-hour sliding window math, and cascading fallback logic.
 - **[Zero-Token Gates & Visual QA (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Compiler flags for Web/TypeScript, C/C++ Sanitizers, .NET 10, and the Playwright/Browser-Use MCP visual inspection sequence.
+- **[E2E Pilot Walkthrough (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Complete step-by-step homologation report of the 5-stage SDD lifecycle on `examples/pipeline-pilot/` with 100% EARS scenarios passed.
 - **[Cloud VM Setup Guide (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Wave-by-wave provisioning instructions (Waves 1 through 5) for Ubuntu Linux ARM64 / Oracle Cloud.
 
 ---

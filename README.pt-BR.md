@@ -265,10 +265,14 @@ agenthub/
 │   └── openspec/
 │       └── project.md                 # Constituição mestre OpenSpec (Sintaxe EARS & Gates Zero-Token)
 │
+├── examples/                          # Repositórios piloto homologados de ponta a ponta
+│   └── pipeline-pilot/                # Exemplo real e completo com specs, mockups e relatórios de QA
+│
 └── docs/                              # Documentação técnica aprofundada (em Inglês)
     ├── architecture.md                # Máquina de estados, isolamento Git Worktree e topologia Tailscale
     ├── quota-arbitration.md           # Matriz de roteamento dos 4 pools, multiplicadores Kiro e janela de 5h
     ├── zero-token-gates.md            # Gates de compilação por domínio e sequência de QA Visual Playwright
+    ├── e2e-walkthrough.md             # Evidências da homologação de ponta a ponta e relatório de execução dos 5 estágios
     └── setup-guide.md                 # Guia passo a passo de provisionamento da VM (Ondas 1 a 5)
 ```
 
@@ -334,6 +338,7 @@ Para especificações técnicas detalhadas, consulte o diretório `docs/`:
 - **[Arquitetura & Máquina de Estados (`docs/architecture.md`)](./docs/architecture.md)** — Detalhamento do isolamento por Git Worktrees, ciclo SDD de 5 estágios, contratos de diretório do OpenSpec e rede zero-trust Tailscale.
 - **[Arbitragem Semântica de Cotas (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Matriz completa de roteamento, multiplicadores de crédito do Kiro (`0.05x` a `1.30x`), janela deslizante de 5 horas e fallback em cascata.
 - **[Gates Zero-Token & QA Visual (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Flags de compilação para Web/TypeScript, Sanitizers C/C++, .NET 10 e sequência de inspeção visual com Playwright/Browser-Use MCP.
+- **[Walkthrough do Piloto E2E (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Relatório completo da homologação dos 5 estágios SDD no repositório `examples/pipeline-pilot/` com 100% de cenários EARS aprovados.
 - **[Guia de Setup na VM Cloud (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Instruções de provisionamento onda por onda (Ondas 1 a 5) para Ubuntu Linux ARM64 / Oracle Cloud.
 
 ---

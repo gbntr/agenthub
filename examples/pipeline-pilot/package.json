@@ -1,0 +1,13 @@
+{
+  "name": "pipeline-pilot",
+  "version": "1.0.0",
+  "description": "Pilot web application for AgentHub autonomous SDD validation",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx serve -l 8085 .",
+    "test": "node --check index.js"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}
