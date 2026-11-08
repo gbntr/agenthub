@@ -20,7 +20,7 @@ Relying on a single AI coding CLI or a single frontier model for every phase of 
 
 | Pool | CLI Binary | Available Models | Quota & Billing Structure | Primary Pipeline Role |
 | :--- | :--- | :--- | :--- | :--- |
-| **Pool 1: Google Gemini** | `agy` | • `gemini-3.8-flash`<br>• `gemini-3.1-pro`<br>• `gemini-4-argon` | 5-hour sliding window (`max: 25` Pro/Argon calls per 5h), completely decoupled from the Anthropic pool. Massive quota on `3.8-flash`. | • **`gemini-3.8-flash`:** Interactive `ui-mockup.html` generation & multimodal **Visual QA** via Playwright.<br>• **`gemini-3.1-pro` / `4-argon`:** `STANDARD` specifications and multi-file refactoring. |
+| **Pool 1: Google Gemini** | `agy` | • `gemini-3.8-flash`<br>• `gemini-4-argon` | 5-hour sliding window (`max: 25` Argon/Pro calls per 5h), completely decoupled from the Anthropic pool. Massive quota on `3.8-flash`. | • **`gemini-3.8-flash`:** Interactive `ui-mockup.html` generation & multimodal **Visual QA** via Playwright.<br>• **`gemini-4-argon`:** `STANDARD` specifications and multi-file refactoring. |
 | **Pool 2: Anthropic Claude** | `agy` | • `claude-sonnet-5.5`<br>• `claude-opus-5.5` | Strict 5-hour sliding window (`max: 12` calls per 5h) + weekly ceiling. Reserved exclusively for high-complexity reasoning. | • **`claude-sonnet-5.5`:** Primary implementation engine for `COMPLEX_CODE`.<br>• **`claude-opus-5.5`:** Reserved for `DEEP_ARCH` and hard architectural deadlocks. |
 | **Pool 3: AWS Kiro CLI** | `kiro-cli` | • `qwen3-coder-next` (**0.05x**)<br>• `minimax-m2.1` (**0.15x**)<br>• `deepseek-3.2` / `luna` (**0.25x**)<br>• `claude-haiku-4.5` (**0.40x**)<br>• `claude-sonnet-4.5` (**1.30x**) | Monthly bucket of **1,000 credits** (`kiro_monthly_credits_max: 950.0` safety cap). Deducted fractionally by model multiplier. | • **High-Volume Economic Workhorse:** Handles `TRIVIAL` tasks, log analysis, checklist updates, and serves as **Tier-1 Fallback** when Pool 1 or Pool 2 windows are saturated. |
 | **Pool 4: GitHub Copilot CLI** | `copilot` | • Copilot Autonomous Engine (`@github/copilot`) | Monthly subscription allowance (`GH_TOKEN` OAuth). | • **Tier-2 Emergency Fallback:** Automatically triggered if both the primary CLI and AWS Kiro CLI return non-zero exit codes or rate-limit errors. |
@@ -64,7 +64,7 @@ flowchart TD
     Q_Kiro1 -- No --> RouteFlash
 
     CheckComp -- STANDARD --> Q_GPro{"Google Pro 5h < 25?"}
-    Q_GPro -- Yes --> RouteGPro["Select Pool 1: agy (gemini-3.1-pro -> gemini-4-argon)"]
+    Q_GPro -- Yes --> RouteGPro["Select Pool 1: agy (gemini-4-argon)"]
     Q_GPro -- No --> Q_Kiro2{"Kiro Credits < 950?"}
     Q_Kiro2 -- Yes --> RouteKiroLuna["Select Pool 3: kiro-cli (deepseek-3.2 / 0.25x)"]
     Q_Kiro2 -- No --> RouteFlash

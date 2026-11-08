@@ -47,7 +47,7 @@ flowchart TB
         end
 
         subgraph Pools["4 Multi-CLI AI Execution Pools"]
-            P1["Pool 1: Google Gemini (agy)<br/>Flash 3.8 / Pro 3.1 / Argon 4"]
+            P1["Pool 1: Google Gemini (agy)<br/>Flash 3.8 / Argon 4"]
             P2["Pool 2: Anthropic Claude (agy)<br/>Sonnet 5.5 / Opus 5.5"]
             P3["Pool 3: AWS Kiro CLI<br/>Haiku 4.5 (0.06x-0.40x) / Qwen (0.05x) / DeepSeek (0.25x)"]
             P4["Pool 4: GitHub Copilot CLI<br/>Emergency Uncapped Fallback"]

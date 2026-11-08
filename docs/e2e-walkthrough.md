@@ -56,7 +56,7 @@ sequenceDiagram
   - `Complexity: STANDARD`
   - `Domain: FULLSTACK_WEB`
   - `UI Impact: true`
-  - `Selected CLI: agy (gemini-3.1-pro)`
+  - `Selected CLI: agy (gemini-4-argon-medium)`
 - **Artifact Generated:** `openspec/changes/vm-status-widget/proposal.md`
   - Complete definition of Scope, Out-of-Scope, and 9 EARS requirements covering *Ubiquitous*, *Event-Driven*, *State-Driven*, and *Unwanted Behavior* scenarios.
 - **Gate 1 Outcome:** Scope reviewed and approved without generating production code.

@@ -86,7 +86,7 @@ flowchart TB
         end
 
         subgraph Pools["4 Multi-CLI AI Execution Pools"]
-            P1["Pool 1: Google Gemini (agy)<br/>Flash 3.8 | Pro 3.1 | Argon 4"]
+            P1["Pool 1: Google Gemini (agy)<br/>Flash 3.8 | Argon 4"]
             P2["Pool 2: Anthropic Claude (agy)<br/>Sonnet 5.5 | Opus 5.5"]
             P3["Pool 3: AWS Kiro CLI (kiro-cli)<br/>Qwen (0.05x) | DeepSeek (0.25x) | Haiku (0.40x)"]
             P4["Pool 4: GitHub Copilot CLI (copilot)<br/>Tier-2 Emergency Fallback"]
@@ -161,7 +161,7 @@ flowchart LR
     StageCheck -- No --> CompCheck{"Complexity Signal"}
 
     CompCheck -- TRIVIAL --> KiroHaiku["Pool 3: kiro-cli<br/>claude-haiku-4.5 (0.40x)<br/>or qwen3-coder (0.05x)"]
-    CompCheck -- STANDARD --> Pool1_Pro["Pool 1: agy<br/>gemini-3.1-pro / 4-argon<br/>(Fallback: kiro deepseek-3.2 0.25x)"]
+    CompCheck -- STANDARD --> Pool1_Pro["Pool 1: agy<br/>gemini-4-argon-medium<br/>(Fallback: kiro deepseek-3.2 0.25x)"]
     CompCheck -- COMPLEX_CODE --> Pool2_Sonnet["Pool 2: agy<br/>claude-sonnet-5.5<br/>(Fallback: gemini-4-argon -> kiro sonnet)"]
     CompCheck -- DEEP_ARCH --> Pool2_Opus["Pool 2: agy<br/>claude-opus-5.5<br/>(Fallback: gemini-4-argon)"]
 
@@ -218,7 +218,7 @@ AgentHub unifies best-in-class open-source tools and commercial AI CLIs into a s
 | :--- | :--- | :--- | :--- |
 | **`QA_VISUAL` / `UI_MOCKUP`** | **Pool 1 (`agy`):** `gemini-3.8-flash` | High-Quota Multimodal Pool | `kiro-cli` (`claude-haiku-4.5`) $\rightarrow$ `copilot` |
 | **`TRIVIAL`**<br>*(Typos, logs, README, rename)* | **Pool 3 (`kiro-cli`):** `claude-haiku-4.5` (or `qwen3-coder-next`) | **0.40x** / **0.05x** of 1,000 monthly credits | `agy` (`gemini-3.8-flash`) $\rightarrow$ `copilot` |
-| **`STANDARD`**<br>*(Specs, routine features, tests)* | **Pool 1 (`agy`):** `gemini-3.1-pro` (`gemini-4-argon-medium`) | Max **25 calls / 5h window** | `kiro-cli` (`deepseek-3.2` @ **0.25x**) $\rightarrow$ `agy` (`gemini-3.8-flash`) |
+| **`STANDARD`**<br>*(Specs, routine features, tests)* | **Pool 1 (`agy`):** `gemini-4-argon-medium` | Max **25 calls / 5h window** | `kiro-cli` (`deepseek-3.2` @ **0.25x**) $\rightarrow$ `agy` (`gemini-3.8-flash`) |
 | **`COMPLEX_CODE`**<br>*(Refactors, concurrency, DB, C/C++)* | **Pool 2 (`agy`):** `claude-sonnet-5.5` | Max **12 calls / 5h window** | `agy` (`gemini-4-argon`) $\rightarrow$ `kiro-cli` (`claude-sonnet-4.5`) |
 | **`DEEP_ARCH`**<br>*(System-wide architecture, deadlocks)* | **Pool 2 (`agy`):** `claude-opus-5.5` | Shared **12 calls / 5h window** | `agy` (`gemini-4-argon`) $\rightarrow$ `kiro-cli` $\rightarrow$ `copilot` |
 

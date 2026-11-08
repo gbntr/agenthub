@@ -59,8 +59,8 @@ COST_MULTIPLIERS = {
 MODEL_MAP_AGY = {
     "gemini-3.8-flash": "gemini-3.8-flash-medium",
     "gemini-3.8-flash-low": "gemini-3.8-flash-low",
-    "gemini-3.1-pro": "gemini-4-argon-medium",
     "gemini-4-argon": "gemini-4-argon-medium",
+    "gemini-4-argon-medium": "gemini-4-argon-medium",
     "claude-sonnet-5.5": "claude-sonnet-5-5-medium",
     "claude-opus-5.5": "claude-opus-5-5-medium"
 }
@@ -168,7 +168,7 @@ def select_engine(stage, prompt_text, quotas):
 
     if comp == "STANDARD":
         if quotas["agy_google_pro_5h"] < LIMITS["agy_google_pro_5h_max"]:
-            return ("agy", "gemini-3.1-pro", route)
+            return ("agy", "gemini-4-argon", route)
         if quotas["kiro_credits_used"] < LIMITS["kiro_monthly_credits_max"]:
             return ("kiro", "luna", route)
         return ("agy", "gemini-3.8-flash", route)
@@ -198,6 +198,7 @@ def run():
 
     quotas = load_quotas()
     cli, model, route_meta = select_engine(stage, prompt, quotas)
+    actual_model = MODEL_MAP_AGY.get(model, model) if cli == "agy" else MODEL_MAP_KIRO.get(model, model)
 
     # Mandatory UI mockup rule injection for frontend tasks
     if stage in ["SPEC", "BRIEFING"] and route_meta.get("has_frontend_ui"):
@@ -207,16 +208,15 @@ def run():
             "at `openspec/changes/<id>/ui-mockup.html` (using Tailwind CSS via CDN) for human visual approval."
         )
 
-    print(f"⚡ [Smart-Agent Router] Stage={stage} | Complexity={route_meta.get('complexity')} | Domain={route_meta.get('project_domain')} | UI={route_meta.get('has_frontend_ui')} -> CLI={cli} ({model})")
+    print(f"⚡ [Smart-Agent Router] Stage={stage} | Complexity={route_meta.get('complexity')} | Domain={route_meta.get('project_domain')} | UI={route_meta.get('has_frontend_ui')} -> CLI={cli} ({actual_model})")
 
     if dry_run:
-        print(f"[DRY-RUN] Simulation completed successfully. Selected CLI: {cli}, Model: {model}")
+        print(f"[DRY-RUN] Simulation completed successfully. Selected CLI: {cli}, Model: {actual_model}")
         return
 
     # Primary CLI Execution
     success = False
     if cli == "agy":
-        actual_model = MODEL_MAP_AGY.get(model, model)
         cmd = ["agy", "-p", prompt, "--model", actual_model, "--dangerously-skip-permissions"]
         res = subprocess.run(cmd, env=env)
         if res.returncode == 0:
@@ -226,8 +226,7 @@ def run():
             elif "flash" not in actual_model:
                 quotas["agy_google_pro_5h"] += 1
     else:
-        actual_model = MODEL_MAP_KIRO.get(model, model)
-        cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--model", actual_model, prompt]
+        cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", actual_model, prompt]
         res = subprocess.run(cmd, env=env)
         if res.returncode == 0:
             success = True
@@ -239,7 +238,7 @@ def run():
     if not success:
         print("⚠️ Primary CLI failed or hit rate limit. Triggering Tier-1 Fallback (AWS Kiro CLI - Claude Haiku 4.5)...")
         fb_kiro = subprocess.run(
-            ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--model", "claude-haiku-4.5", prompt],
+            ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", "claude-haiku-4.5", prompt],
             env=env
         )
         if fb_kiro.returncode == 0:

@@ -86,7 +86,7 @@ sudo chmod +x /usr/local/bin/smart-agent
 Test semantic routing in dry-run mode:
 ```bash
 smart-agent --dry-run BRIEFING "Create a responsive React login page with Tailwind CSS"
-# Output: ⚡ [Smart-Agent Router] Stage=BRIEFING | Complexity=STANDARD | Domain=FULLSTACK_WEB | UI=True -> CLI=agy (gemini-3.1-pro)
+# Output: ⚡ [Smart-Agent Router] Stage=BRIEFING | Complexity=STANDARD | Domain=FULLSTACK_WEB | UI=True -> CLI=agy (gemini-4-argon-medium)
 ```
 
 ### Wave 4: Vibe Kanban Daemon, Profiles, and Headless Playwright MCP
