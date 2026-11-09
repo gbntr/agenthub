@@ -5,6 +5,9 @@ Routing is fully declarative (config/routing-policy.yaml): quotas, credit multip
 stage x complexity candidate chains are data, not code. Quota state is serialized with
 fcntl.flock so parallel Git Worktrees never lose updates. CLI updates and the model cache
 refresh run strictly out-of-band via `smart-agent --auto-update`.
+Gate stages (CODE_REVIEW, QA_VISUAL, QA_FUNCTIONAL) run a persistent self-healing rejection loop
+(openspec/changes/<slug>/.state.json under flock, max_retries) and QA stages get a dynamic
+ephemeral QA_PORT plus mandatory process-group teardown.
 """
 import sys
 import os
@@ -12,6 +15,8 @@ import re
 import json
 import time
 import fcntl
+import signal
+import socket
 import tempfile
 import contextlib
 import subprocess
@@ -279,29 +284,173 @@ def auto_update():
     os.replace(tmp, MODELS_CACHE)
     print(f"✅ [auto-update] Cache written: {MODELS_CACHE} (agy={len(cache.get('agy', []))}, kiro={len(cache.get('kiro', []))})")
 
-def build_cmd(cand, prompt):
+# ------------------------------------------------------------------------------
+# Active change binding, agents and CLI command construction
+# ------------------------------------------------------------------------------
+GATE_REPORTS = {"CODE_REVIEW": "code-review-report.md", "QA_VISUAL": "qa-report.md", "QA_FUNCTIONAL": "qa-report.md"}
+VERDICT_RE = re.compile(r"STATUS:\s*(APPROVED|REJECTED)", re.IGNORECASE)
+
+def resolve_slug(explicit=None):
+    """Active change slug: --slug, $AGENTHUB_CHANGE, else the most recent openspec/changes/<slug>/."""
+    slug = explicit or os.environ.get("AGENTHUB_CHANGE")
+    if slug:
+        return slug
+    root = Path("openspec/changes")
+    if not root.is_dir():
+        return None
+    dirs = [d for d in root.iterdir() if d.is_dir() and d.name != "archive"]
+    if not dirs:
+        return None
+    return max(dirs, key=lambda d: d.stat().st_mtime).name
+
+def spec_binding(slug):
+    """Prompt block that explicitly binds the agent to the active change directory."""
+    if slug:
+        return (f"\n\n[ACTIVE SPEC]: `openspec/changes/{slug}/` is the single source of truth for this task "
+                f"(proposal.md, context-map.md, specs/, tasks.md, reports). Read and write artifacts only there.")
+    return ("\n\n[ACTIVE SPEC]: derive a kebab-case <slug> from the card title and use "
+            "`openspec/changes/<slug>/` as the single source of truth for this task.")
+
+def build_cmd(cand, prompt, agent=None):
     if cand["cli"] == "agy":
-        return ["agy", "-p", prompt, "--model", cand["runtime"], "--dangerously-skip-permissions"]
-    return ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", cand["runtime"], prompt]
+        cmd = ["agy", "-p", prompt, "--model", cand["runtime"], "--dangerously-skip-permissions"]
+        if agent:
+            cmd += ["--agent", agent]
+        return cmd
+    cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", cand["runtime"]]
+    if agent:
+        cmd += ["--agent", agent]
+    return cmd + [prompt]
 
-def run():
-    if "--auto-update" in sys.argv:
-        auto_update()
-        return
+# ------------------------------------------------------------------------------
+# QA: dynamic ephemeral port + mandatory process-group teardown
+# ------------------------------------------------------------------------------
+def alloc_free_port():
+    """Ask the kernel for a free ephemeral TCP port (never the common dev ports)."""
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        if port not in (3000, 5000, 8000):
+            return port
 
-    dry_run = "--dry-run" in sys.argv
-    args = [a for a in sys.argv[1:] if a != "--dry-run"]
+def listening_pids(port):
+    """PIDs listening on `port` (via ss, falling back to lsof)."""
+    pids = set()
+    try:
+        out = subprocess.run(["ss", "-H", "-ltnp", f"sport = :{port}"], capture_output=True, text=True, timeout=5).stdout
+        pids |= {int(p) for p in re.findall(r"pid=(\d+)", out)}
+    except Exception:
+        pass
+    if not pids:
+        try:
+            out = subprocess.run(["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"], capture_output=True, text=True, timeout=5).stdout
+            pids |= {int(p) for p in out.split()}
+        except Exception:
+            pass
+    pids.discard(os.getpid())
+    return pids
 
-    stage = args[0] if len(args) > 0 else "STANDARD"
-    prompt = args[1] if len(args) > 1 else (sys.stdin.read() if not sys.stdin.isatty() else "")
+def teardown(pgid, port):
+    """Kill the isolated process group, then anything still listening on QA_PORT."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        deadline = time.time() + 3
+        while sig == signal.SIGTERM and time.time() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except (ProcessLookupError, PermissionError):
+                break
+            time.sleep(0.1)
+    for pid in listening_pids(port):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
-    if not prompt:
-        print("Usage: smart-agent [--dry-run] <STAGE> '<prompt>' or via stdin | smart-agent --auto-update", file=sys.stderr)
-        sys.exit(1)
+def run_proc(cmd, extra_env=None, qa_port=None):
+    """Run a CLI. For QA, isolate it in its own session and always tear it down."""
+    penv = dict(env)
+    penv.update(extra_env or {})
+    if qa_port is None:
+        return subprocess.run(cmd, env=penv).returncode
+    proc = subprocess.Popen(cmd, env=penv, start_new_session=True)
+    try:
+        return proc.wait()
+    finally:
+        teardown(proc.pid, qa_port)
 
-    policy = load_policy()
+# ------------------------------------------------------------------------------
+# Persistent rejection-loop state: openspec/changes/<slug>/.state.json (under flock)
+# ------------------------------------------------------------------------------
+@contextlib.contextmanager
+def state_lock(change_dir):
+    fd = os.open(str(change_dir / ".state.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
-    # Select and reserve under one lock so parallel worktrees see each other's usage.
+def load_state(change_dir, max_retries):
+    try:
+        st = json.loads((change_dir / ".state.json").read_text())
+    except Exception:
+        st = {}
+    st.setdefault("status", "IN_PROGRESS")
+    st.setdefault("retry_count", 0)
+    st["max_retries"] = max_retries
+    st.setdefault("history", [])
+    return st
+
+def save_state(change_dir, st):
+    fd, tmp = tempfile.mkstemp(dir=str(change_dir), prefix=".state.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(st, f, indent=2)
+    os.replace(tmp, change_dir / ".state.json")
+
+def read_verdict(report):
+    """Return 'APPROVED' / 'REJECTED' from the last STATUS line, or None if absent."""
+    try:
+        found = VERDICT_RE.findall(report.read_text())
+    except Exception:
+        return None
+    return found[-1].upper() if found else None
+
+def zero_token_validate(cwd="."):
+    """Deterministic local compiler/test gate run between APPLY retries (no LLM tokens)."""
+    custom = os.environ.get("AGENTHUB_VALIDATE_CMD")
+    if custom:
+        cmds = [custom]
+    else:
+        cmds = []
+        root = Path(cwd)
+        if (root / "tsconfig.json").exists():
+            cmds.append("npx tsc --noEmit")
+        if (root / "package.json").exists():
+            cmds.append("npm test --if-present")
+        if (root / "pyproject.toml").exists() or (root / "pytest.ini").exists():
+            cmds.append("pytest -q")
+        if (root / "Makefile").exists():
+            cmds.append("make test")
+    for c in cmds:
+        print(f"🧪 [Zero-Token Gate] {c}")
+        if subprocess.run(c, shell=True, env=env, cwd=cwd).returncode != 0:
+            print(f"⚠️ Zero-Token Gate failed: {c}", file=sys.stderr)
+            return False
+    return True
+
+# ------------------------------------------------------------------------------
+# Single stage execution (select + reserve + run + refund + fallback cascade)
+# ------------------------------------------------------------------------------
+def execute_stage(stage, agent, prompt, policy, dry_run=False, qa_port=None):
+    """Returns (success, route_meta). Quota state is mutated only under quota_lock()."""
     with quota_lock():
         quotas = load_quotas(policy["limits"]["window_seconds"])
         cand, route_meta = select_engine(stage, prompt, quotas, policy)
@@ -310,8 +459,6 @@ def run():
             save_quotas(quotas)
 
     cli, actual_model = cand["cli"], cand["runtime"]
-
-    # Mandatory UI mockup rule injection for frontend tasks
     if stage in ["SPEC", "BRIEFING"] and route_meta.get("has_frontend_ui"):
         prompt += (
             "\n\n[ACTIVE UI RULE]: This task has visual frontend impact. "
@@ -319,16 +466,20 @@ def run():
             "at `openspec/changes/<id>/ui-mockup.html` (using Tailwind CSS via CDN) for human visual approval."
         )
 
-    print(f"⚡ [Smart-Agent Router] Stage={stage} | Complexity={route_meta.get('complexity')} | Domain={route_meta.get('project_domain')} | UI={route_meta.get('has_frontend_ui')} -> CLI={cli} ({actual_model})")
+    print(f"⚡ [Smart-Agent Router] Stage={stage} | Agent={agent or '-'} | Complexity={route_meta.get('complexity')} | Domain={route_meta.get('project_domain')} | UI={route_meta.get('has_frontend_ui')} -> CLI={cli} ({actual_model})")
 
     if dry_run:
         print(f"[DRY-RUN] Simulation completed successfully. Selected CLI: {cli}, Model: {actual_model}")
-        return
+        return True, route_meta
 
     _ensure_gh_token()
-    res = subprocess.run(build_cmd(cand, prompt), env=env)
-    if res.returncode == 0:
-        return
+    extra = {"QA_PORT": str(qa_port)} if qa_port else {}
+    if qa_port:
+        prompt += (f"\n\n[QA_PORT]: bind every server you start to the free port {qa_port} (`$QA_PORT`). "
+                   "Never use :3000, :5000 or :8000. Terminate every process you spawn before exiting.")
+
+    if run_proc(build_cmd(cand, prompt, agent), extra, qa_port) == 0:
+        return True, route_meta
 
     # Refund the reservation: the call failed.
     with quota_lock():
@@ -339,15 +490,124 @@ def run():
     # Cascading fallback if primary CLI hits rate limits or fails
     fb = normalize_candidate(policy["fallback"]["tier1"], policy)
     print(f"⚠️ Primary CLI failed or hit rate limit. Triggering Tier-1 Fallback (AWS Kiro CLI - {fb['runtime']})...")
-    fb_res = subprocess.run(build_cmd(fb, prompt), env=env)
-    if fb_res.returncode == 0:
+    if run_proc(build_cmd(fb, prompt, agent), extra, qa_port) == 0:
         with quota_lock():
             quotas = load_quotas(policy["limits"]["window_seconds"])
             apply_usage(quotas, policy, fb)
             save_quotas(quotas)
-    else:
-        print("⚠️ Tier-1 Fallback failed. Triggering Tier-2 Emergency Fallback (GitHub Copilot CLI)...")
-        subprocess.run(["copilot", "-p", prompt, "-s", "--allow-all"], env=env)
+        return True, route_meta
+    print("⚠️ Tier-1 Fallback failed. Triggering Tier-2 Emergency Fallback (GitHub Copilot CLI)...")
+    return run_proc(["copilot", "-p", prompt, "-s", "--allow-all"], extra, qa_port) == 0, route_meta
+
+# ------------------------------------------------------------------------------
+# Gate stages: self-healing rejection loop
+# ------------------------------------------------------------------------------
+def run_gate(stage, agent, prompt, policy, slug):
+    """Run CODE_REVIEW / QA_*; on REJECTED, re-run code-craftsman (APPLY) up to max_retries."""
+    change_dir = Path("openspec/changes") / slug
+    if not change_dir.is_dir():
+        print(f"❌ {change_dir}/ not found.", file=sys.stderr)
+        return 2
+    report = change_dir / GATE_REPORTS[stage]
+    max_retries = int(policy.get("orchestration", {}).get("max_retries", 2))
+    apply_agent = policy.get("stage_agents", {}).get("APPLY", "code-craftsman")
+
+    while True:
+        report.unlink(missing_ok=True)  # never trust a stale verdict
+        qa_port = alloc_free_port() if stage.startswith("QA_") else None
+        ok, _ = execute_stage(stage, agent, prompt, policy, qa_port=qa_port)
+        verdict = read_verdict(report) if ok else None
+        if ok and verdict == "APPROVED":
+            with state_lock(change_dir):
+                st = load_state(change_dir, max_retries)
+                st["status"] = f"{stage}_APPROVED"
+                st["history"].append({"gate": stage, "verdict": "APPROVED", "ts": int(time.time())})
+                save_state(change_dir, st)
+            print(f"✅ [{stage}] STATUS: APPROVED")
+            return 0
+
+        reason = verdict or ("NO_VERDICT" if ok else "AGENT_FAILED")
+        with state_lock(change_dir):
+            st = load_state(change_dir, max_retries)
+            st["history"].append({"gate": stage, "verdict": reason, "ts": int(time.time())})
+            if st["retry_count"] >= max_retries:
+                st["status"] = "HALTED_FOR_HUMAN"
+                save_state(change_dir, st)
+                print(f"🛑 [{stage}] rejected ({reason}) and retry_count={st['retry_count']} >= {max_retries}: HALTED_FOR_HUMAN", file=sys.stderr)
+                return 1
+            st["retry_count"] += 1
+            st["status"] = f"RETRYING_{stage}"
+            save_state(change_dir, st)
+            attempt = st["retry_count"]
+
+        defects = report.read_text() if report.exists() else f"(gate produced no report; reason: {reason})"
+        print(f"🔁 [{stage}] {reason}: self-healing attempt {attempt}/{max_retries} via {apply_agent} (APPLY)")
+        fix_prompt = (
+            f"[REJECTION REPORT from {stage}] Fix every defect below in the application code, "
+            f"re-run the local Zero-Token gate until it exits 0, and do NOT edit `openspec/changes/{slug}/specs/`.\n\n"
+            f"{defects}" + spec_binding(slug)
+        )
+        execute_stage("APPLY", apply_agent, fix_prompt, policy)
+        zero_token_validate()
+
+def parse_args(argv):
+    opts = {"dry_run": False, "agent": None, "slug": None, "reset_state": False}
+    pos = []
+    it = iter(argv)
+    for a in it:
+        if a == "--dry-run":
+            opts["dry_run"] = True
+        elif a == "--reset-state":
+            opts["reset_state"] = True
+        elif a == "--agent":
+            opts["agent"] = next(it, None)
+        elif a == "--slug":
+            opts["slug"] = next(it, None)
+        else:
+            pos.append(a)
+    return opts, pos
+
+def run():
+    if "--auto-update" in sys.argv:
+        auto_update()
+        return
+
+    opts, args = parse_args(sys.argv[1:])
+    stage = args[0] if len(args) > 0 else "STANDARD"
+    prompt = args[1] if len(args) > 1 else (sys.stdin.read() if not sys.stdin.isatty() else "")
+
+    if not prompt:
+        print("Usage: smart-agent [--dry-run] [--agent NAME] [--slug SLUG] [--reset-state] <STAGE> '<prompt>' or via stdin | smart-agent --auto-update", file=sys.stderr)
+        sys.exit(1)
+
+    policy = load_policy()
+    slug = resolve_slug(opts["slug"])
+
+    # `QA` auto-dispatches: QA_VISUAL when the change has a UI (ui-mockup.html or UI signals), else QA_FUNCTIONAL.
+    if stage == "QA":
+        mockup = slug and (Path("openspec/changes") / slug / "ui-mockup.html").exists()
+        has_ui = bool(mockup) or bool(classify_task(prompt).get("has_frontend_ui"))
+        stage = "QA_VISUAL" if has_ui else "QA_FUNCTIONAL"
+    stage = policy.get("stage_aliases", {}).get(stage, stage)
+    agent = opts["agent"] or policy.get("stage_agents", {}).get(stage)
+
+    if slug and stage in policy.get("stage_agents", {}):
+        prompt += spec_binding(slug)
+    elif stage in policy.get("stage_agents", {}):
+        prompt += spec_binding(None)
+
+    if stage in GATE_REPORTS and not opts["dry_run"]:
+        if not slug:
+            print("❌ Gate stages need an active change: pass --slug or create openspec/changes/<slug>/.", file=sys.stderr)
+            sys.exit(2)
+        if opts["reset_state"]:
+            cd = Path("openspec/changes") / slug
+            with state_lock(cd):
+                (cd / ".state.json").unlink(missing_ok=True)
+        sys.exit(run_gate(stage, agent, prompt, policy, slug))
+
+    ok, _ = execute_stage(stage, agent, prompt, policy, dry_run=opts["dry_run"])
+    sys.exit(0 if ok or opts["dry_run"] else 1)
 
 if __name__ == "__main__":
     run()

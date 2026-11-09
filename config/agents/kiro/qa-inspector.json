@@ -1,0 +1,19 @@
+{
+  "name": "qa-inspector",
+  "description": "Stage 5 QA: visual (Playwright MCP) or black-box functional QA on a dynamic QA_PORT, with mandatory teardown.",
+  "prompt": "file://~/.config/agenthub/agents/qa-inspector.md",
+  "mcpServers": {},
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "shell",
+    "write",
+    "@ast-grep",
+    "@playwright",
+    "@browser-use"
+  ],
+  "allowedTools": [],
+  "includeMcpJson": true,
+  "model": null
+}

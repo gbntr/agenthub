@@ -1,0 +1,16 @@
+{
+  "name": "briefing-analyst",
+  "description": "Stage 1 analyst: turns the card and context-map.md into an EARS proposal.md.",
+  "prompt": "file://~/.config/agenthub/agents/briefing-analyst.md",
+  "mcpServers": {},
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "write",
+    "@ast-grep"
+  ],
+  "allowedTools": [],
+  "includeMcpJson": true,
+  "model": null
+}

@@ -30,16 +30,20 @@
 
 ## 2. Workflow Stages & Vibe Kanban Integration
 
-Tasks are orchestrated in isolated **Git Worktrees** via **Vibe Kanban** (`:3000` over Tailscale) and routed through `/usr/local/bin/smart-agent`:
+Tasks are orchestrated in isolated **Git Worktrees** via **Vibe Kanban** (`:3000` over Tailscale) and routed through `/usr/local/bin/smart-agent --agent <name> <STAGE>`. The active change is always `openspec/changes/<slug>/` (passed explicitly; no archiving). Full contracts: [`docs/agents-catalog.md`](./docs/agents-catalog.md).
 
-1. **Stage 1 — `BRIEFING` (Human Gate 1):**  
-   Generate `openspec/changes/<slug>/proposal.md` only. Stop and request human approval.
-2. **Stage 2 — `SPEC` (Human Gate 2):**  
-   Run `/opsx:propose` to generate `specs/`, `tasks.md`, optional `design.md` (only for `COMPLEX_CODE` / `DEEP_ARCH`), and `ui-mockup.html` (if `has_frontend_ui == true`). Validate with `openspec validate --strict`. Stop for human review.
-3. **Stage 3 — `APPLY` (`/opsx:apply`):**  
-   Implement items in `tasks.md` sequentially inside the isolated Git Worktree, marking `- [x]` as each item passes Zero-Token validation.
-4. **Stage 4 — `QA_VISUAL` (`/opsx:verify`):**  
-   Launch the application server, inspect via **Playwright MCP** and **Browser-Use MCP**, verify EARS scenarios against `ui-mockup.html`, and write evidence/screenshots to `openspec/changes/<slug>/qa-report.md`.
+| Stage | Agent | Output | Gate |
+| :--- | :--- | :--- | :--- |
+| 0 — `SCOUT` | `repo-scout` | `context-map.md` | — |
+| 1 — `BRIEFING` | `briefing-analyst` | `proposal.md` (EARS) | Human Gate 1 |
+| 2 — `SPEC` | `spec-architect` | `specs/`, `tasks.md` (TDD), `design.md`, `ui-mockup.html` | Human Gate 2 |
+| 3 — `APPLY` | `code-craftsman` | code + tests, `- [x]` in `tasks.md` (never edits `specs/`) | Zero-Token gate |
+| 4 — `CODE_REVIEW` | `spec-auditor` | `code-review-report.md` (`STATUS: APPROVED\|REJECTED`) | Auto reject loop |
+| 5 — `QA_VISUAL` / `QA_FUNCTIONAL` | `qa-inspector` | `qa-report.md` (`STATUS: APPROVED\|REJECTED`) | Auto reject loop |
+
+- **Rejection loop:** `STATUS: REJECTED` makes `smart-agent` re-run `code-craftsman` with the report and re-run the gate, persisted in `openspec/changes/<slug>/.state.json` (`max_retries: 2`); then `HALTED_FOR_HUMAN` and exit `1`.
+- **QA hygiene:** servers bind only to `$QA_PORT` (never `:3000`, `:5000`, `:8000`) and every spawned process is terminated.
+- **Token economy:** run shell commands through `rtk`; query code structurally with `ast-grep` instead of reading whole files; Caveman `lite` for Briefing/Spec, `full` elsewhere.
 
 ---
 
