@@ -130,3 +130,19 @@ cp ~/github/agenthub/AGENTS.md AGENTS.md
 ```
 
 Then open your Vibe Kanban board via your Tailscale IP (`http://<tailscale-ip>:3000`), add `~/github/my-new-project`, create a task card, and run **Profile 1 (`1. Briefing (Gate 1)`)**!
+
+---
+
+## Token Optimization Stack (`rtk`, `ast-grep`, Caveman)
+
+`install.sh` (Wave 3b) provisions a zero-idle-RAM Rust stack:
+
+| Tool | Purpose | Provisioning |
+| :--- | :--- | :--- |
+| **RTK** (`rtk-ai/rtk`) | Compresses verbose shell output (`git`, test runners, compilers) before it enters the agent context | Installer script + `rtk init --global` |
+| **ast-grep** (`ast-grep`, `@ast-grep/mcp`; use the `ast-grep` binary, since `sg` on Ubuntu is util-linux) | Structural AST search instead of full-file reads | `npm i -g @ast-grep/cli`; MCP server `ast-grep` registered in `config/mcp/mcp.json`, `kiro-mcp.json`, `copilot-mcp-config.json` |
+| **Caveman** (`JuliusBrussee/caveman`) | Terse agent replies: `lite` for Briefing/Spec (keeps EARS intact), `full` for Scout/Apply/Review/QA | `npx skills add JuliusBrussee/caveman -g`; rules in [`config/caveman/`](../config/caveman/) copied to `~/.config/agenthub/caveman/` |
+
+Provisioning also runs `smart-agent --auto-update` once (CLI updates and `~/.cache/agenthub/models.json` refresh); schedule it periodically, never on the task path. See [`quota-arbitration.md`](./quota-arbitration.md#7-out-of-band-auto-update---auto-update).
+
+Verify locally (no AI tokens used): `./core/test_smart_agent.sh`, `bash -n install.sh`, `jq . config/mcp/*.json`.

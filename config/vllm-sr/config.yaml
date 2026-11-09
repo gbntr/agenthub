@@ -1,11 +1,146 @@
-version: "0.3"
-signals:
-  complexity:
-    type: classification
-    labels: ["TRIVIAL", "STANDARD", "COMPLEX_CODE", "DEEP_ARCH"]
-  has_frontend_ui:
-    type: boolean
-    description: "True if the task creates or modifies visual UI components, pages, HTML/CSS, or React views."
-  project_domain:
-    type: classification
-    labels: ["UNIVERSITY_C_CPP_CSHARP", "FULLSTACK_WEB", "DOCS_ONLY"]
+# AgentHub — vllm-sr canonical v0.3 declarative routing contract.
+# Quotas, credit multipliers and stage x complexity candidate chains live in
+# config/routing-policy.yaml (consumed by core/smart-agent). This file declares the
+# semantic signals and the ordered modelRefs per complexity decision.
+version: v0.3
+
+listeners:
+  - name: "http-8080"
+    address: "127.0.0.1"
+    port: 8080
+    timeout: "300s"
+
+providers:
+  defaults:
+    model: "gemini-3.8-flash"
+  models:
+    - name: "gemini-3.8-flash"
+      backend_refs:
+        - name: "agy-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "gemini-4-argon"
+      backend_refs:
+        - name: "agy-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "claude-sonnet-5-5"
+      backend_refs:
+        - name: "agy-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "claude-opus-5-5"
+      backend_refs:
+        - name: "agy-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "kiro/claude-haiku-5.5"
+      backend_refs:
+        - name: "kiro-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "kiro/auto"
+      backend_refs:
+        - name: "kiro-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+    - name: "kiro/claude-sonnet-5.5"
+      backend_refs:
+        - name: "kiro-cli"
+          provider: vllm
+          endpoint: "127.0.0.1:8080"
+          protocol: "http"
+          weight: 100
+
+routing:
+  modelCards:
+    - name: "gemini-3.8-flash"
+    - name: "gemini-4-argon"
+    - name: "claude-sonnet-5-5"
+    - name: "claude-opus-5-5"
+    - name: "kiro/claude-haiku-5.5"
+    - name: "kiro/auto"
+    - name: "kiro/claude-sonnet-5.5"
+
+  signals:
+    keywords:
+      - name: "trivial_markers"
+        operator: "OR"
+        keywords: ["typo", "readme", "comment", "checklist", "rename", "format", "comentario", "renomear", "formatar"]
+      - name: "complex_markers"
+        operator: "OR"
+        keywords: ["refactor", "migration", "database", "security", "algorithm", "parallel", "concurrency", "kernel", "optimization", "distributed", "migracao", "banco", "seguranca", "algoritmo", "paralelo", "concorrencia", "otimizacao"]
+      - name: "deep_arch_markers"
+        operator: "OR"
+        keywords: ["architecture", "redesign", "state machine", "multi-service", "arquitetura"]
+      - name: "frontend_ui_markers"
+        operator: "OR"
+        keywords: ["react", "css", "tailwind", "html", "layout", "mockup", "button", "page", "component", "widget", "frontend", "tela", "botao", "pagina", "componente"]
+
+  decisions:
+    - name: "deep-arch"
+      description: "DEEP_ARCH: Opus first, Argon overflow."
+      priority: 400
+      rules:
+        operator: "AND"
+        conditions:
+          - type: "keyword"
+            name: "deep_arch_markers"
+      modelRefs:
+        - model: "claude-opus-5-5"
+          use_reasoning: true
+        - model: "gemini-4-argon"
+          use_reasoning: true
+    - name: "complex-code"
+      description: "COMPLEX_CODE: Sonnet, then Argon, then Kiro Sonnet 5.5."
+      priority: 300
+      rules:
+        operator: "AND"
+        conditions:
+          - type: "keyword"
+            name: "complex_markers"
+      modelRefs:
+        - model: "claude-sonnet-5-5"
+          use_reasoning: true
+        - model: "gemini-4-argon"
+          use_reasoning: true
+        - model: "kiro/claude-sonnet-5.5"
+          use_reasoning: false
+    - name: "trivial"
+      description: "TRIVIAL: cheapest first (Kiro Haiku 5.5 at 0.06x), then Flash."
+      priority: 200
+      rules:
+        operator: "AND"
+        conditions:
+          - type: "keyword"
+            name: "trivial_markers"
+      modelRefs:
+        - model: "kiro/claude-haiku-5.5"
+          use_reasoning: false
+        - model: "gemini-3.8-flash"
+          use_reasoning: false
+    - name: "standard"
+      description: "STANDARD catch-all: Argon, then Kiro auto, then Flash."
+      priority: 100
+      rules:
+        operator: "AND"
+        conditions: []
+      modelRefs:
+        - model: "gemini-4-argon"
+          use_reasoning: false
+        - model: "kiro/auto"
+          use_reasoning: false
+        - model: "gemini-3.8-flash"
+          use_reasoning: false

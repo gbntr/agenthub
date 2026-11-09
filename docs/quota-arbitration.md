@@ -1,8 +1,8 @@
 # Semantic Quota Arbitrage & Multi-CLI Routing Matrix
 
 > **Document:** `docs/quota-arbitration.md`  
-> **Component:** `core/smart-agent` + `config/vllm-sr/config.yaml`  
-> **State File:** `~/.pipeline_quotas.json`
+> **Component:** `core/smart-agent` + `config/vllm-sr/config.yaml` + `config/routing-policy.yaml`  
+> **State Files:** `~/.pipeline_quotas.json` (guarded by `~/.pipeline_quotas.lock`), `~/.cache/agenthub/models.json`
 
 ---
 
@@ -20,9 +20,9 @@ Relying on a single AI coding CLI or a single frontier model for every phase of 
 
 | Pool | CLI Binary | Available Models | Quota & Billing Structure | Primary Pipeline Role |
 | :--- | :--- | :--- | :--- | :--- |
-| **Pool 1: Google Gemini** | `agy` | • `gemini-3.8-flash`<br>• `gemini-4-argon` | 5-hour sliding window (`max: 25` Argon/Pro calls per 5h), completely decoupled from the Anthropic pool. Massive quota on `3.8-flash`. | • **`gemini-3.8-flash`:** Interactive `ui-mockup.html` generation & multimodal **Visual QA** via Playwright.<br>• **`gemini-4-argon`:** `STANDARD` specifications and multi-file refactoring. |
-| **Pool 2: Anthropic Claude** | `agy` | • `claude-sonnet-5.5`<br>• `claude-opus-5.5` | Strict 5-hour sliding window (`max: 12` calls per 5h) + weekly ceiling. Reserved exclusively for high-complexity reasoning. | • **`claude-sonnet-5.5`:** Primary implementation engine for `COMPLEX_CODE`.<br>• **`claude-opus-5.5`:** Reserved for `DEEP_ARCH` and hard architectural deadlocks. |
-| **Pool 3: AWS Kiro CLI** | `kiro-cli` | • `qwen3-coder-next` (**0.05x**)<br>• `minimax-m2.1` (**0.15x**)<br>• `deepseek-3.2` / `luna` (**0.25x**)<br>• `claude-haiku-4.5` (**0.40x**)<br>• `claude-sonnet-4.5` (**1.30x**) | Monthly bucket of **1,000 credits** (`kiro_monthly_credits_max: 950.0` safety cap). Deducted fractionally by model multiplier. | • **High-Volume Economic Workhorse:** Handles `TRIVIAL` tasks, log analysis, checklist updates, and serves as **Tier-1 Fallback** when Pool 1 or Pool 2 windows are saturated. |
+| **Pool 1: Google Gemini** | `agy` | • `gemini-3.8-flash` (`low`/`medium`/`high`)<br>• `gemini-4-argon` (`low`/`medium`/`high`) | 5-hour sliding window (`max: 25` Argon/Pro calls per 5h), completely decoupled from the Anthropic pool. Massive quota on `3.8-flash`. | • **`gemini-3.8-flash`:** Interactive `ui-mockup.html` generation & multimodal **Visual QA** via Playwright.<br>• **`gemini-4-argon`:** `STANDARD` specifications and multi-file refactoring. |
+| **Pool 2: Anthropic Claude** | `agy` | • `claude-sonnet-5-5` (`low`/`medium`/`high`)<br>• `claude-opus-5-5` (`low`/`medium`/`high`) | Strict 5-hour sliding window (`max: 12` calls per 5h) + weekly ceiling. Reserved exclusively for high-complexity reasoning. | • **`claude-sonnet-5.5`:** Primary implementation engine for `COMPLEX_CODE`.<br>• **`claude-opus-5.5`:** Reserved for `DEEP_ARCH` and hard architectural deadlocks. |
+| **Pool 3: AWS Kiro CLI** | `kiro-cli` | • `claude-haiku-5.5` (**0.06x**)<br>• `auto` (**1.00x**)<br>• `claude-sonnet-5.5` (**1.30x**)<br>_(strict whitelist, see §4)_ | Monthly bucket of **1,000 credits** (`kiro_monthly_credits_max: 950.0` safety cap). Deducted fractionally by model multiplier. | • **High-Volume Economic Workhorse:** Handles `TRIVIAL` tasks, log analysis, checklist updates, and serves as **Tier-1 Fallback** when Pool 1 or Pool 2 windows are saturated. |
 | **Pool 4: GitHub Copilot CLI** | `copilot` | • Copilot Autonomous Engine (`@github/copilot`) | Monthly subscription allowance (`GH_TOKEN` OAuth). | • **Tier-2 Emergency Fallback:** Automatically triggered if both the primary CLI and AWS Kiro CLI return non-zero exit codes or rate-limit errors. |
 
 ---
@@ -46,54 +46,75 @@ Relying on a single AI coding CLI or a single frontier model for every phase of 
 
 ---
 
-## 4. Decision Tree & Cascading Fallback Flow
+## 4. Declarative Routing & Kiro Whitelist
+
+`smart-agent` contains **no model names and no `if/elif/else` routing tree**. Everything is data in [`config/routing-policy.yaml`](../config/routing-policy.yaml) (resolved from `$AGENTHUB_POLICY`, then `~/.config/agenthub/routing-policy.yaml`, then the repo copy). Editing the file takes effect on the next invocation, with no Python change.
+
+The policy defines:
+
+- **`limits`:** `agy_anthropic_5h_max: 12`, `agy_google_pro_5h_max: 25`, `kiro_monthly_credits_max: 950.0`, 5h window (`18000` s).
+- **`kiro.whitelist`:** the only models Pool 3 may run.
+
+  | Kiro model | Credit multiplier |
+  | :--- | :--- |
+  | `claude-haiku-5.5` | **0.06x** |
+  | `auto` | **1.00x** |
+  | `claude-sonnet-5.5` | **1.30x** |
+
+- **`kiro.blocked`:** legacy models (`deepseek-3.2`, `qwen3-coder-next`, `minimax-m2.1`, `minimax-m2.5`, `glm-5`, `claude-haiku-4.5`, `claude-sonnet-4.5`) are rejected and remapped to a whitelisted tier.
+- **`agy.families`:** `gemini-3.8-flash`, `gemini-4-argon`, `claude-sonnet-5-5`, `claude-opus-5-5`, each with `low`/`medium`/`high` levels (runtime id = `<family>-<level>`) and the 5h pool they consume (`none`, `google_pro`, `anthropic`).
+- **`routes[STAGE][COMPLEXITY]`:** ordered candidate chain for every `Stage` (`SCOUT`, `BRIEFING`, `SPEC`, `APPLY`, `CODE_REVIEW`, `QA_VISUAL`, `QA_FUNCTIONAL`) x `Complexity` (`TRIVIAL`, `STANDARD`, `COMPLEX_CODE`, `DEEP_ARCH`).
+
+The `vllm-sr` side ([`config/vllm-sr/config.yaml`](../config/vllm-sr/config.yaml), canonical `v0.3`: `listeners`, `providers`, `routing.modelCards`, `routing.signals`, `routing.decisions`) declares the semantic signals and ordered `modelRefs`. Validate with `vllm-sr config validate --config config/vllm-sr/config.yaml`.
+
+---
+
+## 5. Decision Flow & Cascading Fallback
 
 ```mermaid
 flowchart TD
-    Start(["Incoming Task: smart-agent <STAGE> '<prompt>'"]) --> Classify["Classify Task<br/>(vllm-sr HTTP :8080 or Local Regex Fallback)"]
-    Classify --> CheckUI{"Stage in [SPEC, BRIEFING]<br/>AND has_frontend_ui == true?"}
-    CheckUI -- Yes --> InjectUI["Inject Mandatory UI Rule:<br/>Generate openspec/changes/<id>/ui-mockup.html"]
-    CheckUI -- No --> CheckStage
-    InjectUI --> CheckStage{"Stage in<br/>[QA_VISUAL, UI_MOCKUP]?"}
-
-    CheckStage -- Yes --> RouteFlash["Select Pool 1: agy (gemini-3.8-flash)"]
-    CheckStage -- No --> CheckComp{"Task Complexity?"}
-
-    CheckComp -- TRIVIAL --> Q_Kiro1{"Kiro Credits < 950?"}
-    Q_Kiro1 -- Yes --> RouteKiroHaiku["Select Pool 3: kiro-cli (claude-haiku-4.5 / 0.40x)"]
-    Q_Kiro1 -- No --> RouteFlash
-
-    CheckComp -- STANDARD --> Q_GPro{"Google Pro 5h < 25?"}
-    Q_GPro -- Yes --> RouteGPro["Select Pool 1: agy (gemini-4-argon)"]
-    Q_GPro -- No --> Q_Kiro2{"Kiro Credits < 950?"}
-    Q_Kiro2 -- Yes --> RouteKiroLuna["Select Pool 3: kiro-cli (deepseek-3.2 / 0.25x)"]
-    Q_Kiro2 -- No --> RouteFlash
-
-    CheckComp -- COMPLEX_CODE --> Q_Anth1{"Anthropic 5h < 12?"}
-    Q_Anth1 -- Yes --> RouteSonnet["Select Pool 2: agy (claude-sonnet-5.5)"]
-    Q_Anth1 -- No --> Q_GPro2{"Google Pro 5h < 25?"}
-    Q_GPro2 -- Yes --> RouteArgon["Select Pool 1: agy (gemini-4-argon)"]
-    Q_GPro2 -- No --> RouteKiroSonnet["Select Pool 3: kiro-cli (claude-sonnet-4.5 / 1.30x)"]
-
-    CheckComp -- DEEP_ARCH --> Q_Anth2{"Anthropic 5h < 12?"}
-    Q_Anth2 -- Yes --> RouteOpus["Select Pool 2: agy (claude-opus-5.5)"]
-    Q_Anth2 -- No --> RouteArgon
-
-    RouteFlash & RouteKiroHaiku & RouteGPro & RouteKiroLuna & RouteSonnet & RouteArgon & RouteKiroSonnet & RouteOpus --> ExecPrimary["Execute Selected Primary CLI"]
-
-    ExecPrimary --> CheckExit{"Exit Code == 0?"}
-    CheckExit -- Yes --> SaveQuota["Update ~/.pipeline_quotas.json & Exit 0"]
-    CheckExit -- No --> FB1["Tier-1 Fallback:<br/>kiro-cli chat --model claude-haiku-4.5"]
-    FB1 --> CheckFB1{"Exit Code == 0?"}
-    CheckFB1 -- Yes --> SaveQuota
+    Start(["Incoming Task: smart-agent STAGE 'prompt'"]) --> Classify["Classify Task<br/>(vllm-sr HTTP :8080 or local regex fallback)"]
+    Classify --> Chain["Load routes[STAGE][COMPLEXITY]<br/>from routing-policy.yaml"]
+    Chain --> Lock["flock(LOCK_EX) ~/.pipeline_quotas.lock"]
+    Lock --> Pick{"First candidate whose pool<br/>is below its cap<br/>and listed in models.json?"}
+    Pick -- Yes --> Reserve["Reserve usage in ~/.pipeline_quotas.json<br/>and release lock"]
+    Pick -- "All saturated" --> Reserve
+    Reserve --> Exec["Execute selected CLI (agy / kiro-cli)"]
+    Exec --> Exit{"Exit code == 0?"}
+    Exit -- Yes --> Done(["Exit 0"])
+    Exit -- No --> Refund["Refund reservation (under lock)"]
+    Refund --> FB1["Tier-1 Fallback:<br/>kiro-cli chat --model claude-haiku-5.5"]
+    FB1 --> CheckFB1{"Exit code == 0?"}
+    CheckFB1 -- Yes --> Done
     CheckFB1 -- No --> FB2["Tier-2 Emergency Fallback:<br/>copilot -p '<prompt>' -s --allow-all"]
+```
+
+Overflow is part of the chain: when the primary candidate's 5h window (`agy_anthropic_5h`, `agy_google_pro_5h`) or Kiro cap (`kiro_credits_used >= 950.0`) is saturated, the next candidate in the route is selected.
+
+UI-mockup injection is unchanged: during `BRIEFING` and `SPEC`, `has_frontend_ui == true` appends the **[ACTIVE UI RULE]** requiring `openspec/changes/<id>/ui-mockup.html`.
+
+---
+
+## 6. Concurrency Safety (`fcntl.flock`)
+
+Several Git Worktrees may run `smart-agent` simultaneously. Selection **and** reservation happen inside one `fcntl.flock(fd, LOCK_EX)` critical section on `~/.pipeline_quotas.lock`, and the state file is rewritten atomically (`tempfile` + `os.replace`). A failed CLI call refunds its reservation under the same lock. Verified by the 20-process stress test in [`core/test_smart_agent.sh`](../core/test_smart_agent.sh) (no lost updates).
+
+---
+
+## 7. Out-of-Band Auto-Update (`--auto-update`)
+
+`kiro-cli update -y` and `agy update` **never** run on a normal task call. Only `smart-agent --auto-update` (invoked by `install.sh` or a scheduled cron/systemd timer) updates both CLIs, queries `agy models`, and atomically rewrites `~/.cache/agenthub/models.json`. Normal calls read that cache with zero network round-trips; if it is missing, the policy is trusted as-is.
+
+```bash
+# Example weekly maintenance entry (crontab -e)
+0 4 * * 1 /usr/local/bin/smart-agent --auto-update
 ```
 
 ---
 
-## 5. Sliding-Window Quota Persistence (`~/.pipeline_quotas.json`)
+## 8. Sliding-Window Quota Persistence (`~/.pipeline_quotas.json`)
 
-`smart-agent` maintains state in `~/.pipeline_quotas.json`:
+`smart-agent` maintains state in `~/.pipeline_quotas.json` (always accessed under the lock from §6):
 
 ```json
 {
@@ -104,9 +125,10 @@ flowchart TD
 }
 ```
 
-- **Automatic 5-Hour Reset:** Whenever `time.time() - window_start > 18000` (5 hours), `agy_anthropic_5h` and `agy_google_pro_5h` reset to `0`, and `window_start` advances to the current timestamp.
+- **Automatic 5-Hour Reset:** Whenever `time.time() - window_start > limits.window_seconds` (`18000`, 5 hours), `agy_anthropic_5h` and `agy_google_pro_5h` reset to `0`, and `window_start` advances to the current timestamp.
 - **Configurable Thresholds via Environment Variables:**
-  - `AGY_ANTHROPIC_5H_MAX` (Default: `12`)
-  - `AGY_GOOGLE_PRO_5H_MAX` (Default: `25`)
-  - `KIRO_MONTHLY_CREDITS_MAX` (Default: `950.0`)
+  - `AGY_ANTHROPIC_5H_MAX` (Default: `12`, from `routing-policy.yaml`)
+  - `AGY_GOOGLE_PRO_5H_MAX` (Default: `25`, from `routing-policy.yaml`)
+  - `KIRO_MONTHLY_CREDITS_MAX` (Default: `950.0`, from `routing-policy.yaml`)
+  - `AGENTHUB_POLICY` (Override path of `routing-policy.yaml`)
   - `VLLM_SR_URL` (Default: `http://127.0.0.1:8080/v1/route`)

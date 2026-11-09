@@ -1,103 +1,141 @@
 #!/usr/bin/env python3
 """
 Smart Agent: Semantic Router & Multi-CLI Orchestrator for the Autonomous SDD Pipeline.
-Manages 5-hour sliding-window quotas, intelligent model selection across 4 AI pools,
-mandatory UI mockup prompt injection, and multi-tier fallback resilience.
+Routing is fully declarative (config/routing-policy.yaml): quotas, credit multipliers and
+stage x complexity candidate chains are data, not code. Quota state is serialized with
+fcntl.flock so parallel Git Worktrees never lose updates. CLI updates and the model cache
+refresh run strictly out-of-band via `smart-agent --auto-update`.
 """
 import sys
 import os
 import re
 import json
 import time
+import fcntl
+import tempfile
+import contextlib
 import subprocess
 import urllib.request
 from pathlib import Path
 
-QUOTA_FILE = Path.home() / ".pipeline_quotas.json"
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    print("❌ PyYAML is required (apt install python3-yaml).", file=sys.stderr)
+    sys.exit(2)
+
+HOME = Path.home()
+QUOTA_FILE = HOME / ".pipeline_quotas.json"
+LOCK_FILE = HOME / ".pipeline_quotas.lock"
+MODELS_CACHE = HOME / ".cache" / "agenthub" / "models.json"
 ROUTER_URL = os.environ.get("VLLM_SR_URL", "http://127.0.0.1:8080/v1/route")
+COMPLEXITIES = ("TRIVIAL", "STANDARD", "COMPLEX_CODE", "DEEP_ARCH")
 
 # Ensure user toolchains are in PATH and GitHub token is exported
 env = os.environ.copy()
-user_home = str(Path.home())
+user_home = str(HOME)
 extra_paths = [f"{user_home}/.local/bin", f"{user_home}/.cargo/bin", "/usr/local/bin"]
 for p in extra_paths:
     if p not in env.get("PATH", ""):
         env["PATH"] = f"{p}:{env.get('PATH', '')}"
 
-if "GH_TOKEN" not in env:
+def _ensure_gh_token():
+    """Lazily export GH_TOKEN (only needed when a CLI is actually launched)."""
+    if "GH_TOKEN" not in env:
+        try:
+            t = subprocess.check_output(["gh", "auth", "token"], env=env, stderr=subprocess.DEVNULL).decode().strip()
+            if t:
+                env["GH_TOKEN"] = t
+        except Exception:
+            pass
+
+# ------------------------------------------------------------------------------
+# Declarative policy
+# ------------------------------------------------------------------------------
+def policy_path():
+    candidates = [
+        os.environ.get("AGENTHUB_POLICY"),
+        str(HOME / ".config" / "agenthub" / "routing-policy.yaml"),
+        str(Path(__file__).resolve().parent.parent / "config" / "routing-policy.yaml"),
+    ]
+    for c in candidates:
+        if c and Path(c).is_file():
+            return Path(c)
+    print("❌ routing-policy.yaml not found (set AGENTHUB_POLICY or run install.sh).", file=sys.stderr)
+    sys.exit(2)
+
+def load_policy():
+    policy = yaml.safe_load(policy_path().read_text())
+    lim = policy["limits"]
+    # Environment variables override the declared ceilings.
+    lim["agy_anthropic_5h_max"] = int(os.environ.get("AGY_ANTHROPIC_5H_MAX", lim["agy_anthropic_5h_max"]))
+    lim["agy_google_pro_5h_max"] = int(os.environ.get("AGY_GOOGLE_PRO_5H_MAX", lim["agy_google_pro_5h_max"]))
+    lim["kiro_monthly_credits_max"] = float(os.environ.get("KIRO_MONTHLY_CREDITS_MAX", lim["kiro_monthly_credits_max"]))
+    return policy
+
+def load_models_cache():
+    """Zero-latency read of the cached model catalog (empty dict if never refreshed)."""
     try:
-        t = subprocess.check_output(["gh", "auth", "token"], env=env, stderr=subprocess.DEVNULL).decode().strip()
-        if t:
-            env["GH_TOKEN"] = t
+        return json.loads(MODELS_CACHE.read_text())
     except Exception:
-        pass
+        return {}
 
-LIMITS = {
-    "agy_anthropic_5h_max": int(os.environ.get("AGY_ANTHROPIC_5H_MAX", 12)),
-    "agy_google_pro_5h_max": int(os.environ.get("AGY_GOOGLE_PRO_5H_MAX", 25)),
-    "kiro_monthly_credits_max": float(os.environ.get("KIRO_MONTHLY_CREDITS_MAX", 950.0))
-}
+# ------------------------------------------------------------------------------
+# Concurrency-safe quota state (fcntl.flock around the whole read-modify-write)
+# ------------------------------------------------------------------------------
+def _fresh_quotas(now):
+    return {"window_start": now, "agy_anthropic_5h": 0, "agy_google_pro_5h": 0, "kiro_credits_used": 0.0}
 
-# Credit cost multipliers in AWS Kiro CLI
-COST_MULTIPLIERS = {
-    "claude-haiku-4.5": 0.40,
-    "qwen3-coder-next": 0.05,
-    "deepseek-3.2": 0.25,
-    "minimax-m2.5": 0.25,
-    "minimax-m2.1": 0.15,
-    "glm-5": 0.50,
-    "auto": 1.00,
-    "claude-sonnet-4.5": 1.30,
-    # Semantic aliases
-    "haiku-5.5": 0.40,
-    "luna": 0.25,
-    "sonnet": 1.30,
-    "opus": 1.30
-}
+@contextlib.contextmanager
+def quota_lock():
+    """Exclusive POSIX lock on ~/.pipeline_quotas.lock, released on exit."""
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(LOCK_FILE), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
-# Mapping from semantic model identifiers to runtime binaries on Linux ARM64
-MODEL_MAP_AGY = {
-    "gemini-3.8-flash": "gemini-3.8-flash-medium",
-    "gemini-3.8-flash-low": "gemini-3.8-flash-low",
-    "gemini-4-argon": "gemini-4-argon-medium",
-    "gemini-4-argon-medium": "gemini-4-argon-medium",
-    "claude-sonnet-5.5": "claude-sonnet-5-5-medium",
-    "claude-opus-5.5": "claude-opus-5-5-medium"
-}
-
-MODEL_MAP_KIRO = {
-    "haiku-5.5": "claude-haiku-4.5",
-    "claude-haiku-4.5": "claude-haiku-4.5",
-    "luna": "deepseek-3.2",
-    "deepseek-3.2": "deepseek-3.2",
-    "qwen": "qwen3-coder-next",
-    "qwen3-coder-next": "qwen3-coder-next",
-    "sonnet": "claude-sonnet-4.5",
-    "claude-sonnet-4.5": "claude-sonnet-4.5",
-    "auto": "auto"
-}
-
-def load_quotas():
+def load_quotas(window_seconds=18000):
+    """Read quota state. MUST be called while holding quota_lock()."""
     now = time.time()
-    if not QUOTA_FILE.exists():
-        return {"window_start": now, "agy_anthropic_5h": 0, "agy_google_pro_5h": 0, "kiro_credits_used": 0.0}
     try:
         data = json.loads(QUOTA_FILE.read_text())
     except Exception:
-        data = {"window_start": now, "agy_anthropic_5h": 0, "agy_google_pro_5h": 0, "kiro_credits_used": 0.0}
+        data = _fresh_quotas(now)
 
-    # 5-hour sliding window reset (18,000 seconds)
-    if now - data.get("window_start", now) > 18000:
+    # Sliding window reset
+    if now - data.get("window_start", now) > window_seconds:
         data["window_start"] = now
         data["agy_anthropic_5h"] = 0
         data["agy_google_pro_5h"] = 0
     return data
 
 def save_quotas(data):
+    """Atomically persist quota state. MUST be called while holding quota_lock()."""
     try:
-        QUOTA_FILE.write_text(json.dumps(data, indent=2))
+        fd, tmp = tempfile.mkstemp(dir=str(QUOTA_FILE.parent), prefix=".pipeline_quotas.")
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, QUOTA_FILE)
     except Exception as e:
         print(f"⚠️ Warning: Failed to persist quota state: {e}", file=sys.stderr)
+
+def apply_usage(quotas, policy, cand, sign=1):
+    """Add (sign=1) or refund (sign=-1) one call of `cand` against the pool counters."""
+    if cand["cli"] == "agy":
+        pool = policy["agy"]["families"].get(cand["model"], {}).get("pool", "none")
+        if pool == "anthropic":
+            quotas["agy_anthropic_5h"] = max(0, quotas["agy_anthropic_5h"] + sign)
+        elif pool == "google_pro":
+            quotas["agy_google_pro_5h"] = max(0, quotas["agy_google_pro_5h"] + sign)
+    elif cand["cli"] == "kiro":
+        cost = policy["kiro"]["whitelist"][cand["model"]]
+        quotas["kiro_credits_used"] = max(0.0, round(quotas["kiro_credits_used"] + sign * cost, 4))
 
 def classify_task(prompt_text):
     """
@@ -153,39 +191,104 @@ def classify_task(prompt_text):
             "project_domain": domain
         }
 
-def select_engine(stage, prompt_text, quotas):
+# ------------------------------------------------------------------------------
+# Candidate resolution
+# ------------------------------------------------------------------------------
+def normalize_candidate(cand, policy):
+    """Enforce the Kiro whitelist and compute the concrete runtime model id."""
+    cand = dict(cand)
+    if cand["cli"] == "kiro":
+        wl = policy["kiro"]["whitelist"]
+        model = cand["model"]
+        if model not in wl:
+            model = policy["kiro"]["blocked"].get(model, "auto")
+        cand["model"] = model
+        cand["runtime"] = model
+    else:
+        cand["runtime"] = f"{cand['model']}-{cand['level']}"
+    return cand
+
+def is_available(cand, policy, quotas, cache):
+    """True when the candidate's pool is not saturated and the cached catalog lists it."""
+    lim = policy["limits"]
+    if cand["cli"] == "agy":
+        known = cache.get("agy") or []
+        if known and cand["runtime"] not in known:
+            return False
+        pool = policy["agy"]["families"].get(cand["model"], {}).get("pool", "none")
+        if pool == "anthropic":
+            return quotas["agy_anthropic_5h"] < lim["agy_anthropic_5h_max"]
+        if pool == "google_pro":
+            return quotas["agy_google_pro_5h"] < lim["agy_google_pro_5h_max"]
+        return True
+    known = cache.get("kiro") or []
+    if known and cand["runtime"] not in known:
+        return False
+    return quotas["kiro_credits_used"] < lim["kiro_monthly_credits_max"]
+
+def select_engine(stage, prompt_text, quotas, policy):
+    """Pick the first available candidate of routes[stage][complexity]."""
     route = classify_task(prompt_text)
     comp = route.get("complexity", "STANDARD")
+    if comp not in COMPLEXITIES:
+        comp = "STANDARD"
 
-    # Visual QA and UI Mockup stages use high-quota multimodal Flash
-    if stage in ["QA_VISUAL", "UI_MOCKUP"]:
-        return ("agy", "gemini-3.8-flash", route)
+    stage = policy.get("stage_aliases", {}).get(stage, stage)
+    if stage not in policy["routes"]:
+        stage = policy["default_stage"]
+    chain = [normalize_candidate(c, policy) for c in policy["routes"][stage][comp]]
 
-    if comp == "TRIVIAL":
-        if quotas["kiro_credits_used"] < LIMITS["kiro_monthly_credits_max"]:
-            return ("kiro", "haiku-5.5", route)
-        return ("agy", "gemini-3.8-flash", route)
+    cache = load_models_cache()
+    for cand in chain:
+        if is_available(cand, policy, quotas, cache):
+            return cand, route
+    # Every pool saturated: last-resort is the unmetered head of the chain's agy entries.
+    return next((c for c in chain if c["cli"] == "agy"), chain[0]), route
 
-    if comp == "STANDARD":
-        if quotas["agy_google_pro_5h"] < LIMITS["agy_google_pro_5h_max"]:
-            return ("agy", "gemini-4-argon", route)
-        if quotas["kiro_credits_used"] < LIMITS["kiro_monthly_credits_max"]:
-            return ("kiro", "luna", route)
-        return ("agy", "gemini-3.8-flash", route)
+# ------------------------------------------------------------------------------
+# Out-of-band maintenance (never on the task critical path)
+# ------------------------------------------------------------------------------
+def auto_update():
+    """Update agy/kiro-cli and atomically refresh ~/.cache/agenthub/models.json."""
+    def sh(cmd):
+        try:
+            r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+            return r.stdout + r.stderr
+        except Exception as e:
+            print(f"   ⚠️ {' '.join(cmd)}: {e}", file=sys.stderr)
+            return ""
 
-    if comp == "COMPLEX_CODE":
-        if quotas["agy_anthropic_5h"] < LIMITS["agy_anthropic_5h_max"]:
-            return ("agy", "claude-sonnet-5.5", route)
-        if quotas["agy_google_pro_5h"] < LIMITS["agy_google_pro_5h_max"]:
-            return ("agy", "gemini-4-argon", route)
-        return ("kiro", "sonnet", route)
+    print("🔄 [auto-update] Updating CLIs...")
+    sh(["kiro-cli", "update", "-y"])
+    sh(["agy", "update"])
 
-    # DEEP_ARCH
-    if quotas["agy_anthropic_5h"] < LIMITS["agy_anthropic_5h_max"]:
-        return ("agy", "claude-opus-5.5", route)
-    return ("agy", "gemini-4-argon", route)
+    print("🔄 [auto-update] Refreshing model cache...")
+    agy_ids = sorted(set(re.findall(r"\b(?:gemini|claude)[a-z0-9.\-]*-(?:low|medium|high)\b", sh(["agy", "models"]))))
+    kiro_ids = sorted(set(re.findall(r"\b(?:claude-[a-z0-9.\-]+|auto)\b", sh(["kiro-cli", "chat", "--list-models"]))))
+    cache = load_models_cache()
+    if agy_ids:
+        cache["agy"] = agy_ids
+    if kiro_ids:
+        cache["kiro"] = kiro_ids
+    cache["updated_at"] = int(time.time())
+
+    MODELS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(MODELS_CACHE.parent), prefix=".models.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(cache, f, indent=2)
+    os.replace(tmp, MODELS_CACHE)
+    print(f"✅ [auto-update] Cache written: {MODELS_CACHE} (agy={len(cache.get('agy', []))}, kiro={len(cache.get('kiro', []))})")
+
+def build_cmd(cand, prompt):
+    if cand["cli"] == "agy":
+        return ["agy", "-p", prompt, "--model", cand["runtime"], "--dangerously-skip-permissions"]
+    return ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", cand["runtime"], prompt]
 
 def run():
+    if "--auto-update" in sys.argv:
+        auto_update()
+        return
+
     dry_run = "--dry-run" in sys.argv
     args = [a for a in sys.argv[1:] if a != "--dry-run"]
 
@@ -193,12 +296,20 @@ def run():
     prompt = args[1] if len(args) > 1 else (sys.stdin.read() if not sys.stdin.isatty() else "")
 
     if not prompt:
-        print("Usage: smart-agent [--dry-run] <STAGE> '<prompt>' or via stdin", file=sys.stderr)
+        print("Usage: smart-agent [--dry-run] <STAGE> '<prompt>' or via stdin | smart-agent --auto-update", file=sys.stderr)
         sys.exit(1)
 
-    quotas = load_quotas()
-    cli, model, route_meta = select_engine(stage, prompt, quotas)
-    actual_model = MODEL_MAP_AGY.get(model, model) if cli == "agy" else MODEL_MAP_KIRO.get(model, model)
+    policy = load_policy()
+
+    # Select and reserve under one lock so parallel worktrees see each other's usage.
+    with quota_lock():
+        quotas = load_quotas(policy["limits"]["window_seconds"])
+        cand, route_meta = select_engine(stage, prompt, quotas, policy)
+        if not dry_run:
+            apply_usage(quotas, policy, cand)
+            save_quotas(quotas)
+
+    cli, actual_model = cand["cli"], cand["runtime"]
 
     # Mandatory UI mockup rule injection for frontend tasks
     if stage in ["SPEC", "BRIEFING"] and route_meta.get("has_frontend_ui"):
@@ -214,39 +325,29 @@ def run():
         print(f"[DRY-RUN] Simulation completed successfully. Selected CLI: {cli}, Model: {actual_model}")
         return
 
-    # Primary CLI Execution
-    success = False
-    if cli == "agy":
-        cmd = ["agy", "-p", prompt, "--model", actual_model, "--dangerously-skip-permissions"]
-        res = subprocess.run(cmd, env=env)
-        if res.returncode == 0:
-            success = True
-            if "claude" in actual_model:
-                quotas["agy_anthropic_5h"] += 1
-            elif "flash" not in actual_model:
-                quotas["agy_google_pro_5h"] += 1
-    else:
-        cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", actual_model, prompt]
-        res = subprocess.run(cmd, env=env)
-        if res.returncode == 0:
-            success = True
-            quotas["kiro_credits_used"] += COST_MULTIPLIERS.get(model, 0.40)
+    _ensure_gh_token()
+    res = subprocess.run(build_cmd(cand, prompt), env=env)
+    if res.returncode == 0:
+        return
 
-    save_quotas(quotas)
+    # Refund the reservation: the call failed.
+    with quota_lock():
+        quotas = load_quotas(policy["limits"]["window_seconds"])
+        apply_usage(quotas, policy, cand, sign=-1)
+        save_quotas(quotas)
 
-    # Cascading Fallback if primary CLI hits rate limits or fails
-    if not success:
-        print("⚠️ Primary CLI failed or hit rate limit. Triggering Tier-1 Fallback (AWS Kiro CLI - Claude Haiku 4.5)...")
-        fb_kiro = subprocess.run(
-            ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--trust-workspace", "--model", "claude-haiku-4.5", prompt],
-            env=env
-        )
-        if fb_kiro.returncode == 0:
-            quotas["kiro_credits_used"] += 0.40
+    # Cascading fallback if primary CLI hits rate limits or fails
+    fb = normalize_candidate(policy["fallback"]["tier1"], policy)
+    print(f"⚠️ Primary CLI failed or hit rate limit. Triggering Tier-1 Fallback (AWS Kiro CLI - {fb['runtime']})...")
+    fb_res = subprocess.run(build_cmd(fb, prompt), env=env)
+    if fb_res.returncode == 0:
+        with quota_lock():
+            quotas = load_quotas(policy["limits"]["window_seconds"])
+            apply_usage(quotas, policy, fb)
             save_quotas(quotas)
-        else:
-            print("⚠️ Tier-1 Fallback failed. Triggering Tier-2 Emergency Fallback (GitHub Copilot CLI)...")
-            subprocess.run(["copilot", "-p", prompt, "-s", "--allow-all"], env=env)
+    else:
+        print("⚠️ Tier-1 Fallback failed. Triggering Tier-2 Emergency Fallback (GitHub Copilot CLI)...")
+        subprocess.run(["copilot", "-p", prompt, "-s", "--allow-all"], env=env)
 
 if __name__ == "__main__":
     run()
