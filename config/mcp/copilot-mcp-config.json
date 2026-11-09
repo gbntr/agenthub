@@ -2,15 +2,32 @@
   "mcpServers": {
     "vibe-kanban": {
       "command": "npx",
-      "args": ["-y", "vibe-kanban", "--mcp"]
+      "args": [
+        "-y",
+        "vibe-kanban",
+        "--mcp"
+      ]
     },
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--headless"]
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
     },
     "browser-use": {
       "command": "uvx",
-      "args": ["browser-use-mcp"]
+      "args": [
+        "browser-use-mcp"
+      ]
+    },
+    "ast-grep": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ast-grep/mcp"
+      ]
     }
   }
 }

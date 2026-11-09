@@ -1,0 +1,102 @@
+# AgentHub — Declarative routing policy consumed by core/smart-agent.
+# Change quotas, credit multipliers or candidate order here: smart-agent applies the
+# new policy on the next invocation, no Python edits required.
+# Resolution order for this file: $AGENTHUB_POLICY, ~/.config/agenthub/routing-policy.yaml,
+# <repo>/config/routing-policy.yaml.
+version: 1
+
+# Quota ceilings. Environment variables (AGY_ANTHROPIC_5H_MAX, AGY_GOOGLE_PRO_5H_MAX,
+# KIRO_MONTHLY_CREDITS_MAX) still override these values.
+limits:
+  window_seconds: 18000            # 5-hour sliding window
+  agy_anthropic_5h_max: 12         # claude-sonnet-5-5 + claude-opus-5-5 share this window
+  agy_google_pro_5h_max: 25        # gemini-4-argon window
+  kiro_monthly_credits_max: 950.0  # safety cap on the 1,000-credit monthly bucket
+
+# Pool 3 (kiro-cli): strict whitelist, value = credit multiplier per call.
+kiro:
+  whitelist:
+    claude-haiku-5.5: 0.06
+    auto: 1.00
+    claude-sonnet-5.5: 1.30
+  # Legacy models are blocked; a request for one resolves to the mapped whitelisted tier.
+  blocked:
+    deepseek-3.2: claude-haiku-5.5
+    qwen3-coder-next: claude-haiku-5.5
+    minimax-m2.1: claude-haiku-5.5
+    minimax-m2.5: claude-haiku-5.5
+    glm-5: auto
+    claude-haiku-4.5: claude-haiku-5.5
+    claude-sonnet-4.5: claude-sonnet-5.5
+
+# Pools 1 and 2 (agy): model families. Runtime id = "<family>-<level>".
+# `pool` selects which 5-hour counter a call consumes (none = unmetered).
+agy:
+  families:
+    gemini-3.8-flash:  {pool: none,       levels: [low, medium, high]}
+    gemini-4-argon:    {pool: google_pro, levels: [low, medium, high]}
+    claude-sonnet-5-5: {pool: anthropic,  levels: [low, medium, high]}
+    claude-opus-5-5:   {pool: anthropic,  levels: [low, medium, high]}
+
+# Candidate anchors (reused by the routes below).
+candidates:
+  flash_low:   &flash_low   {cli: agy,  model: gemini-3.8-flash,  level: low}
+  flash_med:   &flash_med   {cli: agy,  model: gemini-3.8-flash,  level: medium}
+  flash_high:  &flash_high  {cli: agy,  model: gemini-3.8-flash,  level: high}
+  argon_med:   &argon_med   {cli: agy,  model: gemini-4-argon,    level: medium}
+  argon_high:  &argon_high  {cli: agy,  model: gemini-4-argon,    level: high}
+  sonnet_med:  &sonnet_med  {cli: agy,  model: claude-sonnet-5-5, level: medium}
+  sonnet_high: &sonnet_high {cli: agy,  model: claude-sonnet-5-5, level: high}
+  opus_med:    &opus_med    {cli: agy,  model: claude-opus-5-5,   level: medium}
+  haiku:       &haiku       {cli: kiro, model: claude-haiku-5.5}
+  kiro_auto:   &kiro_auto   {cli: kiro, model: auto}
+  kiro_sonnet: &kiro_sonnet {cli: kiro, model: claude-sonnet-5.5}
+
+# Alias stages and the default used for unknown stage names.
+stage_aliases:
+  UI_MOCKUP: QA_VISUAL
+default_stage: APPLY
+
+# Ordered candidate chains: routes[STAGE][COMPLEXITY]. The first candidate whose pool
+# is not saturated wins; later entries are overflow. Pool 4 (copilot) is the final fallback.
+routes:
+  SCOUT:
+    TRIVIAL:      [*haiku, *flash_low, *kiro_auto]
+    STANDARD:     [*haiku, *flash_low, *kiro_auto]
+    COMPLEX_CODE: [*haiku, *flash_low, *kiro_auto]
+    DEEP_ARCH:    [*haiku, *flash_low, *kiro_auto]
+  BRIEFING:
+    TRIVIAL:      [*haiku, *flash_low]
+    STANDARD:     [*flash_med, *argon_med, *haiku]
+    COMPLEX_CODE: [*argon_med, *sonnet_med, *flash_high]
+    DEEP_ARCH:    [*sonnet_high, *argon_high, *flash_high]
+  SPEC:
+    TRIVIAL:      [*haiku, *flash_med]
+    STANDARD:     [*argon_med, *flash_high, *kiro_auto]
+    COMPLEX_CODE: [*sonnet_med, *argon_high, *kiro_sonnet]
+    DEEP_ARCH:    [*opus_med, *argon_high, *kiro_sonnet]
+  APPLY:
+    TRIVIAL:      [*haiku, *flash_med]
+    STANDARD:     [*argon_med, *kiro_auto, *flash_high]
+    COMPLEX_CODE: [*sonnet_med, *argon_high, *kiro_sonnet]
+    DEEP_ARCH:    [*opus_med, *sonnet_high, *argon_high]
+  CODE_REVIEW:
+    TRIVIAL:      [*haiku, *flash_med]
+    STANDARD:     [*haiku, *argon_med, *flash_high]
+    COMPLEX_CODE: [*argon_high, *sonnet_med, *kiro_sonnet]
+    DEEP_ARCH:    [*sonnet_high, *opus_med, *argon_high]
+  QA_VISUAL:
+    TRIVIAL:      [*flash_med, *flash_high, *kiro_auto]
+    STANDARD:     [*flash_med, *flash_high, *kiro_auto]
+    COMPLEX_CODE: [*flash_high, *flash_med, *kiro_auto]
+    DEEP_ARCH:    [*flash_high, *flash_med, *kiro_auto]
+  QA_FUNCTIONAL:
+    TRIVIAL:      [*haiku, *flash_low, *kiro_auto]
+    STANDARD:     [*haiku, *flash_low, *kiro_auto]
+    COMPLEX_CODE: [*haiku, *flash_med, *kiro_auto]
+    DEEP_ARCH:    [*haiku, *flash_med, *kiro_auto]
+
+# Failure cascade after the selected candidate exits non-zero.
+fallback:
+  tier1: *haiku        # kiro-cli claude-haiku-5.5
+  tier2: copilot       # GitHub Copilot CLI

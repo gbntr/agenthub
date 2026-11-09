@@ -88,7 +88,7 @@ flowchart TB
         subgraph Pools["4 Pools de Execução Multi-CLI de IA"]
             P1["Pool 1: Google Gemini (agy)<br/>Flash 3.8 | Argon 4"]
             P2["Pool 2: Anthropic Claude (agy)<br/>Sonnet 5.5 | Opus 5.5"]
-            P3["Pool 3: AWS Kiro CLI (kiro-cli)<br/>Qwen (0.05x) | DeepSeek (0.25x) | Haiku (0.40x)"]
+            P3["Pool 3: AWS Kiro CLI (kiro-cli)<br/>Haiku 5.5 (0.06x) | Auto (1.00x) | Sonnet 5.5 (1.30x)"]
             P4["Pool 4: GitHub Copilot CLI (copilot)<br/>Fallback de Emergência Nível 2"]
         end
 
@@ -160,14 +160,14 @@ flowchart LR
     StageCheck -- Sim --> Pool1_Flash["Pool 1: agy<br/>gemini-3.8-flash"]
     StageCheck -- Não --> CompCheck{"Sinal de Complexidade"}
 
-    CompCheck -- TRIVIAL --> KiroHaiku["Pool 3: kiro-cli<br/>claude-haiku-4.5 (0.40x)<br/>ou qwen3-coder (0.05x)"]
-    CompCheck -- STANDARD --> Pool1_Pro["Pool 1: agy<br/>gemini-4-argon-medium<br/>(Fallback: kiro deepseek-3.2 0.25x)"]
+    CompCheck -- TRIVIAL --> KiroHaiku["Pool 3: kiro-cli<br/>claude-haiku-5.5 (0.06x)"]
+    CompCheck -- STANDARD --> Pool1_Pro["Pool 1: agy<br/>gemini-4-argon-medium<br/>(Fallback: kiro auto 1.00x)"]
     CompCheck -- COMPLEX_CODE --> Pool2_Sonnet["Pool 2: agy<br/>claude-sonnet-5.5<br/>(Fallback: gemini-4-argon -> kiro sonnet)"]
     CompCheck -- DEEP_ARCH --> Pool2_Opus["Pool 2: agy<br/>claude-opus-5.5<br/>(Fallback: gemini-4-argon)"]
 
     Pool1_Flash & KiroHaiku & Pool1_Pro & Pool2_Sonnet & Pool2_Opus --> Exec{"CLI Primária<br/>Exit Code == 0?"}
     Exec -- Sim --> Done(["Atualiza ~/.pipeline_quotas.json"])
-    Exec -- Não --> FB1["Fallback Nível 1:<br/>kiro-cli (claude-haiku-4.5)"]
+    Exec -- Não --> FB1["Fallback Nível 1:<br/>kiro-cli (claude-haiku-5.5)"]
     FB1 --> FB1_Check{"Exit Code == 0?"}
     FB1_Check -- Sim --> Done
     FB1_Check -- Não --> FB2["Fallback de Emergência Nível 2:<br/>GitHub Copilot CLI (copilot -p)"]
@@ -205,7 +205,7 @@ O AgentHub integra ferramentas open-source de ponta e CLIs comerciais em uma ún
 
 ### 6. Motores de Execução Multi-CLI (`agy`, `kiro-cli`, `copilot`)
 - **Antigravity CLI (`agy`):** Executa os modelos Google Gemini (`gemini-3.8-flash`, `gemini-4-argon`) e Anthropic Claude (`claude-sonnet-5.5`, `claude-opus-5.5`) em modo autônomo (`agy -p "<prompt>" --model <model> --dangerously-skip-permissions`).
-- **AWS Kiro CLI (`kiro-cli`):** Executa modelos com multiplicadores fracionários de créditos (`qwen3-coder-next` @ `0.05x`, `deepseek-3.2` @ `0.25x`, `claude-haiku-4.5` @ `0.40x`, `claude-sonnet-4.5` @ `1.30x`) via `kiro-cli chat --no-interactive --trust-all-tools`.
+- **AWS Kiro CLI (`kiro-cli`):** Executa modelos com multiplicadores fracionários de créditos (`claude-haiku-5.5` @ `0.06x`, `auto` @ `1.00x`, `claude-sonnet-5.5` @ `1.30x` (strict whitelist in `config/routing-policy.yaml`)) via `kiro-cli chat --no-interactive --trust-all-tools`.
 - **GitHub Copilot CLI (`@github/copilot`):** Atua como rede de segurança de emergência (`copilot -p "<prompt>" -s --allow-all`) autenticada via `GH_TOKEN="$(gh auth token)"`.
 
 ---
@@ -216,10 +216,10 @@ O `smart-agent` monitora o consumo em `~/.pipeline_quotas.json` usando uma **jan
 
 | Classificação / Estágio | Pool & Modelo Primário | Limite de Janela / Custo | Cadeia de Fallback Automático |
 | :--- | :--- | :--- | :--- |
-| **`QA_VISUAL` / `UI_MOCKUP`** | **Pool 1 (`agy`):** `gemini-3.8-flash` | Pool Multimodal de Alta Cota | `kiro-cli` (`claude-haiku-4.5`) $\rightarrow$ `copilot` |
-| **`TRIVIAL`**<br>*(Typos, logs, README, rename)* | **Pool 3 (`kiro-cli`):** `claude-haiku-4.5` (ou `qwen3-coder-next`) | **0.40x** / **0.05x** de 1.000 créditos/mês | `agy` (`gemini-3.8-flash`) $\rightarrow$ `copilot` |
-| **`STANDARD`**<br>*(Specs, features padrão, testes)* | **Pool 1 (`agy`):** `gemini-4-argon-medium` | Máx **25 chamadas / janela de 5h** | `kiro-cli` (`deepseek-3.2` @ **0.25x**) $\rightarrow$ `agy` (`gemini-3.8-flash`) |
-| **`COMPLEX_CODE`**<br>*(Refactors, concorrência, DB, C/C++)* | **Pool 2 (`agy`):** `claude-sonnet-5.5` | Máx **12 chamadas / janela de 5h** | `agy` (`gemini-4-argon`) $\rightarrow$ `kiro-cli` (`claude-sonnet-4.5`) |
+| **`QA_VISUAL` / `UI_MOCKUP`** | **Pool 1 (`agy`):** `gemini-3.8-flash` | Pool Multimodal de Alta Cota | `kiro-cli` (`claude-haiku-5.5`) $\rightarrow$ `copilot` |
+| **`TRIVIAL`**<br>*(Typos, logs, README, rename)* | **Pool 3 (`kiro-cli`):** `claude-haiku-5.5` | **0.06x** de 1.000 créditos/mês | `agy` (`gemini-3.8-flash`) $\rightarrow$ `copilot` |
+| **`STANDARD`**<br>*(Specs, features padrão, testes)* | **Pool 1 (`agy`):** `gemini-4-argon-medium` | Máx **25 chamadas / janela de 5h** | `kiro-cli` (`auto` @ **1.00x**) $\rightarrow$ `agy` (`gemini-3.8-flash`) |
+| **`COMPLEX_CODE`**<br>*(Refactors, concorrência, DB, C/C++)* | **Pool 2 (`agy`):** `claude-sonnet-5.5` | Máx **12 chamadas / janela de 5h** | `agy` (`gemini-4-argon`) $\rightarrow$ `kiro-cli` (`claude-sonnet-5.5`) |
 | **`DEEP_ARCH`**<br>*(Arquitetura crítica, deadlocks)* | **Pool 2 (`agy`):** `claude-opus-5.5` | Compartilha **12 chamadas / 5h** | `agy` (`gemini-4-argon`) $\rightarrow$ `kiro-cli` $\rightarrow$ `copilot` |
 
 ---
@@ -336,7 +336,7 @@ http://<seu-ip-tailscale>:3000
 Para especificações técnicas detalhadas, consulte o diretório `docs/`:
 
 - **[Arquitetura & Máquina de Estados (`docs/architecture.md`)](./docs/architecture.md)** — Detalhamento do isolamento por Git Worktrees, ciclo SDD de 5 estágios, contratos de diretório do OpenSpec e rede zero-trust Tailscale.
-- **[Arbitragem Semântica de Cotas (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Matriz completa de roteamento, multiplicadores de crédito do Kiro (`0.05x` a `1.30x`), janela deslizante de 5 horas e fallback em cascata.
+- **[Arbitragem Semântica de Cotas (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Matriz completa de roteamento, multiplicadores de crédito do Kiro (`0.06x` a `1.30x`), janela deslizante de 5 horas e fallback em cascata.
 - **[Gates Zero-Token & QA Visual (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Flags de compilação para Web/TypeScript, Sanitizers C/C++, .NET 10 e sequência de inspeção visual com Playwright/Browser-Use MCP.
 - **[Walkthrough do Piloto E2E (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Relatório completo da homologação dos 5 estágios SDD no repositório `examples/pipeline-pilot/` com 100% de cenários EARS aprovados.
 - **[Guia de Setup na VM Cloud (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Instruções de provisionamento onda por onda (Ondas 1 a 5) para Ubuntu Linux ARM64 / Oracle Cloud.

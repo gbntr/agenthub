@@ -28,7 +28,8 @@ sudo apt-get install -y \
   curl \
   jq \
   tmux \
-  ripgrep
+  ripgrep \
+  python3-yaml
 
 # Install .NET SDK (10.0 or 8.0 depending on Ubuntu release)
 if apt-cache show dotnet-sdk-10.0 >/dev/null 2>&1; then
@@ -77,11 +78,40 @@ uv tool install vllm-sr || uv pip install --system vllm-sr || true
 echo "⚙️  [Wave 3] Deploying vLLM-SR signals and Smart-Agent orchestrator..."
 mkdir -p "$HOME/.vllm-sr"
 cp "$REPO_ROOT/config/vllm-sr/config.yaml" "$HOME/.vllm-sr/config.yaml"
+mkdir -p "$HOME/.config/agenthub" "$HOME/.cache/agenthub"
+cp "$REPO_ROOT/config/routing-policy.yaml" "$HOME/.config/agenthub/routing-policy.yaml"
 cp "$REPO_ROOT/templates/openspec/project.md" "$HOME/github/tools/openspec-template/project.md"
 
 sudo cp "$REPO_ROOT/core/smart-agent" /usr/local/bin/smart-agent
 sudo chmod +x /usr/local/bin/smart-agent
-chmod +x "$REPO_ROOT/core/smart-agent" "$REPO_ROOT/core/test_all_clis.sh"
+chmod +x "$REPO_ROOT/core/smart-agent" "$REPO_ROOT/core/test_all_clis.sh" "$REPO_ROOT/core/test_smart_agent.sh"
+
+# Out-of-band maintenance: update agy/kiro-cli and refresh ~/.cache/agenthub/models.json.
+# Never runs on the task critical path; schedule it (cron/systemd timer) for periodic refreshes.
+echo "🔄 [Wave 3] Running out-of-band smart-agent --auto-update..."
+/usr/local/bin/smart-agent --auto-update || true
+
+# ------------------------------------------------------------------------------
+# WAVE 3b: Rust Token Optimization Stack (rtk + ast-grep + caveman)
+# ------------------------------------------------------------------------------
+echo "🦀 [Wave 3b] Installing token optimization stack (rtk, ast-grep, caveman)..."
+
+if ! command -v rtk >/dev/null 2>&1; then
+  echo "   -> Installing RTK (rtk-ai/rtk)..."
+  curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh || true
+fi
+command -v rtk >/dev/null 2>&1 && { rtk init --global </dev/null || true; }
+
+# NOTE: on Ubuntu `sg` is util-linux; detect the real binary via `ast-grep`.
+if ! command -v ast-grep >/dev/null 2>&1; then
+  echo "   -> Installing ast-grep (@ast-grep/cli)..."
+  sudo npm install -g @ast-grep/cli
+fi
+
+echo "   -> Installing Caveman (JuliusBrussee/caveman) + stage rules (lite / full)..."
+npx -y skills add JuliusBrussee/caveman -g -y </dev/null || true
+mkdir -p "$HOME/.config/agenthub/caveman"
+cp "$REPO_ROOT/config/caveman/lite.md" "$REPO_ROOT/config/caveman/full.md" "$HOME/.config/agenthub/caveman/"
 
 # ------------------------------------------------------------------------------
 # WAVE 4: Vibe Kanban Daemon, Profiles, Headless Chromium & MCP Servers

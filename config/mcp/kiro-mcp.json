@@ -21,6 +21,13 @@
         "@playwright/mcp@latest",
         "--headless"
       ]
+    },
+    "ast-grep": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ast-grep/mcp"
+      ]
     }
   }
 }
