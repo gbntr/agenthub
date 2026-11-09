@@ -1,0 +1,17 @@
+{
+  "name": "spec-architect",
+  "description": "Stage 2 architect: writes specs/, tasks.md (TDD), design.md and ui-mockup.html.",
+  "prompt": "file://~/.config/agenthub/agents/spec-architect.md",
+  "mcpServers": {},
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "shell",
+    "write",
+    "@ast-grep"
+  ],
+  "allowedTools": [],
+  "includeMcpJson": true,
+  "model": null
+}

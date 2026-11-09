@@ -59,8 +59,8 @@ python3 - "$SA" <<'PY'
 import sys, re
 src = open(sys.argv[1]).read()
 body = src.split("def run():")[1]
-assert body.index("auto_update()") < body.index("select_engine"), "auto_update must short-circuit first"
-assert '"update"' not in body, "update call leaked into run()"
+assert body.index("auto_update()") < body.index("run_gate("), "auto_update must short-circuit first"
+assert '"update"' not in src.split("def auto_update")[0] and '"update"' not in src.split("def build_cmd")[1], "update call leaked outside auto_update()"
 print("✅ updates isolated behind --auto-update")
 PY
 echo "🎉 smart-agent checks passed"

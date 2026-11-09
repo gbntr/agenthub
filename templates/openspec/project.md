@@ -77,3 +77,21 @@ The directory structure under `openspec/changes/<change-id>/` strictly follows t
   The agent halts after generating `specs/`, `tasks.md`, optional `design.md`, and `ui-mockup.html`. Coding (`/opsx:apply`) inside the isolated Git Worktree only begins after explicit human sign-off.
 - **Final Review & 1-Click Merge:**  
   The agent presents `qa-report.md`, Zero-Token compiler exit codes, and Desktop/Mobile Playwright screenshots before the worktree branch is merged into `main`.
+
+---
+
+## 5. Stage Agents & Review/QA Gates (AgentHub v2)
+
+Six specialized agents (catalog: `docs/agents-catalog.md` in the AgentHub repo) run the pipeline and are always bound to the active change `openspec/changes/<change-id>/`:
+
+| Stage | Agent | Produces |
+| :--- | :--- | :--- |
+| `SCOUT` | `repo-scout` | `context-map.md` |
+| `BRIEFING` | `briefing-analyst` | `proposal.md` (EARS) |
+| `SPEC` | `spec-architect` | `specs/`, `tasks.md` (TDD cases), `design.md`, `ui-mockup.html` |
+| `APPLY` | `code-craftsman` | code + tests (must not edit `specs/`) |
+| `CODE_REVIEW` | `spec-auditor` | `code-review-report.md` |
+| `QA_VISUAL` / `QA_FUNCTIONAL` | `qa-inspector` | `qa-report.md` |
+
+- Gate reports MUST end with `STATUS: APPROVED` or `STATUS: REJECTED`. A rejection triggers an automatic `APPLY` retry (state in `.state.json`, `max_retries: 2`) before halting for a human.
+- QA servers MUST bind to the dynamic `$QA_PORT` (never `:3000`, `:5000`, `:8000`) and be torn down before exit.

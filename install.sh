@@ -84,7 +84,7 @@ cp "$REPO_ROOT/templates/openspec/project.md" "$HOME/github/tools/openspec-templ
 
 sudo cp "$REPO_ROOT/core/smart-agent" /usr/local/bin/smart-agent
 sudo chmod +x /usr/local/bin/smart-agent
-chmod +x "$REPO_ROOT/core/smart-agent" "$REPO_ROOT/core/test_all_clis.sh" "$REPO_ROOT/core/test_smart_agent.sh"
+chmod +x "$REPO_ROOT/core/smart-agent" "$REPO_ROOT/core/test_all_clis.sh" "$REPO_ROOT/core/test_smart_agent.sh" "$REPO_ROOT/core/test_gates.sh"
 
 # Out-of-band maintenance: update agy/kiro-cli and refresh ~/.cache/agenthub/models.json.
 # Never runs on the task critical path; schedule it (cron/systemd timer) for periodic refreshes.
@@ -118,6 +118,10 @@ cp "$REPO_ROOT/config/caveman/lite.md" "$REPO_ROOT/config/caveman/full.md" "$HOM
 # ------------------------------------------------------------------------------
 echo "📋 [Wave 4] Configuring Vibe Kanban profiles & MCP servers..."
 mkdir -p "$HOME/.vibe-kanban" "$HOME/.local/share/vibe-kanban"
+mkdir -p "$HOME/.config/agenthub/agents" "$HOME/.kiro/agents" "$HOME/.gemini/config/agents"
+cp "$REPO_ROOT"/config/agents/*.md "$HOME/.config/agenthub/agents/"
+cp "$REPO_ROOT"/config/agents/*.md "$HOME/.gemini/config/agents/"   # agy --agent definitions
+cp "$REPO_ROOT"/config/agents/kiro/*.json "$HOME/.kiro/agents/"      # kiro-cli chat --agent definitions
 cp "$REPO_ROOT/config/vibe-kanban/profiles.json" "$HOME/.vibe-kanban/profiles.json"
 cp "$REPO_ROOT/config/vibe-kanban/profiles.json" "$HOME/.local/share/vibe-kanban/profiles.json"
 

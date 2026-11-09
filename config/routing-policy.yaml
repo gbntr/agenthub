@@ -57,6 +57,21 @@ stage_aliases:
   UI_MOCKUP: QA_VISUAL
 default_stage: APPLY
 
+# Default specialized agent per stage (override with `smart-agent --agent <name>`).
+stage_agents:
+  SCOUT: repo-scout
+  BRIEFING: briefing-analyst
+  SPEC: spec-architect
+  APPLY: code-craftsman
+  CODE_REVIEW: spec-auditor
+  QA_VISUAL: qa-inspector
+  QA_FUNCTIONAL: qa-inspector
+
+# Self-healing loop: after STATUS: REJECTED, smart-agent re-runs APPLY and the gate
+# up to max_retries times (state in openspec/changes/<slug>/.state.json), then halts.
+orchestration:
+  max_retries: 2
+
 # Ordered candidate chains: routes[STAGE][COMPLEXITY]. The first candidate whose pool
 # is not saturated wins; later entries are overflow. Pool 4 (copilot) is the final fallback.
 routes:
