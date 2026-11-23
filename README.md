@@ -236,6 +236,27 @@ Before an agent can check off an item in `tasks.md` or request human review, it 
 
 ---
 
+## 🤖 6.1. v2: Specialized Agents, Review Gate & Dual QA
+
+The v2 pipeline has **6 stages**, each run by a dedicated agent (full catalog: [`docs/agents-catalog.md`](./docs/agents-catalog.md)), always bound to `openspec/changes/<slug>/`:
+
+| Stage | Agent | Output | Caveman |
+| :--- | :--- | :--- | :-: |
+| 0 `SCOUT` | `repo-scout` | `context-map.md` | `full` |
+| 1 `BRIEFING` | `briefing-analyst` | `proposal.md` (EARS) | `lite` |
+| 2 `SPEC` | `spec-architect` | `specs/`, `tasks.md` (TDD), `design.md`, `ui-mockup.html` | `lite` |
+| 3 `APPLY` | `code-craftsman` | code + tests (never edits `specs/`) | `full` |
+| 4 `CODE_REVIEW` | `spec-auditor` | `code-review-report.md` | `full` |
+| 5 `QA_VISUAL` / `QA_FUNCTIONAL` | `qa-inspector` | `qa-report.md` | `full` |
+
+- **Persistent rejection loop:** `STATUS: REJECTED` makes `smart-agent` re-run `code-craftsman` with the report and repeat the gate (`openspec/changes/<slug>/.state.json`, `fcntl.flock`, `max_retries: 2`); then it writes `HALTED_FOR_HUMAN` and exits `1`.
+- **Dual QA with dynamic port:** `QA_VISUAL` if the change has a UI, otherwise `QA_FUNCTIONAL`; servers use only `$QA_PORT` (never `:3000`/`:5000`/`:8000`) and every process is killed in a `finally` block.
+- **Token economy:** `rtk` (terminal output), `ast-grep` (AST search) and Caveman.
+- **Declarative routing:** `config/routing-policy.yaml` + `vllm-sr` `v0.3`.
+- **Roadmap:** [`docs/roadmap.md`](./docs/roadmap.md).
+
+---
+
 ## 📂 7. Repository Structure
 
 ```text
@@ -248,11 +269,16 @@ agenthub/
 │
 ├── core/                              # Core orchestration & verification executables
 │   ├── smart-agent                    # Semantic router, 5h quota manager, UI rule injector & fallback engine
+│   ├── test_smart_agent.sh            # Zero-token routing, whitelist & flock stress tests
+│   ├── test_gates.sh                  # Zero-token simulation of review/QA gates (fake CLIs)
 │   └── test_all_clis.sh               # Automated E2E health check for all 4 AI CLI pools (POOL1..POOL4)
 │
 ├── config/                            # Production configuration templates
+│   ├── agents/                        # 6 specialized stage agents (agy .md + kiro/.json)
+│   ├── caveman/                       # Caveman lite/full rules
+│   ├── routing-policy.yaml            # Quotas, costs, Kiro whitelist \& candidate chains
 │   ├── vibe-kanban/
-│   │   ├── profiles.json              # 4 Vibe Kanban SDD Stage Profiles (Briefing, Spec+UI, Apply, Visual QA)
+│   │   ├── profiles.json              # 6 Vibe Kanban Stage Profiles (Scout, Briefing, Spec+UI, Apply, Review, QA)
 │   │   └── vibe-kanban.service        # Systemd unit running Vibe Kanban on 0.0.0.0:3000
 │   ├── mcp/
 │   │   ├── mcp.json                   # Unified MCP servers (vibe-kanban, playwright, browser-use)
@@ -269,6 +295,8 @@ agenthub/
 │   └── pipeline-pilot/                # Complete working SDD pilot with specs, mockups & QA reports
 │
 └── docs/                              # In-depth technical documentation
+    ├── agents-catalog.md              # Catalog of the 6 specialized agents
+    ├── roadmap.md                     # Future features (Obsidian vault, Briefing chatbot)
     ├── architecture.md                # State machine, Git Worktree isolation & Tailscale mesh topology
     ├── quota-arbitration.md           # 4-Pool routing matrix, Kiro credit multipliers & 5h sliding window
     ├── zero-token-gates.md            # Domain-specific compiler gates & Playwright MCP Visual QA flow
@@ -336,9 +364,11 @@ http://<your-tailscale-ip>:3000
 For deeper technical specifications, explore the `docs/` directory:
 
 - **[Architecture & State Machine (`docs/architecture.md`)](./docs/architecture.md)** — Detailed breakdown of Git Worktree isolation, the 5-stage SDD lifecycle, OpenSpec directory contracts, and Tailscale zero-trust networking.
-- **[Semantic Quota Arbitrage (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Complete routing matrix, Kiro credit multipliers (`0.05x` to `1.30x`), 5-hour sliding window math, and cascading fallback logic.
+- **[Semantic Quota Arbitrage (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Complete routing matrix, Kiro credit multipliers (`0.06x` to `1.30x`), 5-hour sliding window math, and cascading fallback logic.
 - **[Zero-Token Gates & Visual QA (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Compiler flags for Web/TypeScript, C/C++ Sanitizers, .NET 10, and the Playwright/Browser-Use MCP visual inspection sequence.
 - **[E2E Pilot Walkthrough (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Complete step-by-step homologation report of the 5-stage SDD lifecycle on `examples/pipeline-pilot/` with 100% EARS scenarios passed.
+- **[Agent Catalog (`docs/agents-catalog.md`)](./docs/agents-catalog.md)** — Role, inputs, outputs, tools, model, Caveman level and rejection power of the 6 agents.
+- **[Roadmap (`docs/roadmap.md`)](./docs/roadmap.md)** — Future features: hybrid Obsidian vault and Briefing chatbot in Vibe Kanban.
 - **[Cloud VM Setup Guide (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Wave-by-wave provisioning instructions (Waves 1 through 5) for Ubuntu Linux ARM64 / Oracle Cloud.
 
 ---

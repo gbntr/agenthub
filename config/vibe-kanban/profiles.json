@@ -24,35 +24,63 @@
   },
   "profiles": [
     {
+      "name": "0. Repo Scout",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "--agent",
+        "repo-scout",
+        "SCOUT",
+        "Map the repository for this card using `ast-grep` and `rtk`. Write ONLY `openspec/changes/<slug>/context-map.md` (impacted files, symbol line ranges, type signatures, test commands). Do not modify application code."
+      ]
+    },
+    {
       "name": "1. Briefing (Gate 1)",
       "command": "/usr/local/bin/smart-agent",
       "args": [
+        "--agent",
+        "briefing-analyst",
         "BRIEFING",
-        "Read the card request carefully. If there is critical ambiguity, list objective clarifying questions. Otherwise, create ONLY the file `openspec/changes/<slug>/proposal.md` containing: Executive Summary, In-Scope, Out-of-Scope, Formal EARS Requirements, and Planned Stages. Do NOT generate code or full specs yet. Stop for Human Gate 1 review."
+        "Read the card request and `context-map.md` if present. If there is critical ambiguity, list objective clarifying questions. Otherwise create ONLY `openspec/changes/<slug>/proposal.md` containing: Executive Summary, In-Scope, Out-of-Scope, Formal EARS Requirements, and Planned Stages. Do NOT generate code or full specs yet. Stop for Human Gate 1 review."
       ]
     },
     {
       "name": "2. Spec + Visual Mockup (Gate 2)",
       "command": "/usr/local/bin/smart-agent",
       "args": [
+        "--agent",
+        "spec-architect",
         "SPEC",
-        "The `proposal.md` has been approved at Gate 1. Execute `/opsx:propose` to generate `specs/`, `tasks.md`, and (only if the task requires architectural changes) `design.md`. If `has_frontend_ui` is active, also generate the self-contained interactive `ui-mockup.html` using Tailwind CSS via CDN. Validate strictly with `openspec validate --strict` and stop for Human Gate 2 review."
+        "The `proposal.md` has been approved at Gate 1. Execute `/opsx:propose` to generate `specs/`, `tasks.md` (with explicit Spec-First TDD test cases per task), and (only for COMPLEX_CODE/DEEP_ARCH) `design.md`. If `has_frontend_ui` is active, also generate the self-contained interactive `ui-mockup.html` using Tailwind CSS via CDN. Validate strictly with `openspec validate --strict` and stop for Human Gate 2 review."
       ]
     },
     {
       "name": "3. Implement Code (/opsx:apply)",
       "command": "/usr/local/bin/smart-agent",
       "args": [
+        "--agent",
+        "code-craftsman",
         "APPLY",
-        "The specifications and visual mockup have been approved at Gate 2. Execute `/opsx:apply` by sequentially implementing each checklist item in `tasks.md`. After each item, run the domain's local Zero-Token compiler/test gate (`gcc`/`make`, `dotnet test`, `pytest`, or `npx tsc --noEmit`) until exit code 0 is achieved, then mark `[x]` in `tasks.md`."
+        "The specifications and visual mockup have been approved at Gate 2. Execute `/opsx:apply` by sequentially implementing each checklist item in `openspec/changes/<slug>/tasks.md` with Spec-First TDD. After each item, run the domain's local Zero-Token gate (`gcc`/`make`, `dotnet test`, `pytest`, or `npx tsc --noEmit`) until exit code 0, then mark `[x]`. Never edit `specs/`."
       ]
     },
     {
-      "name": "4. Visual QA & Verification (/opsx:verify)",
+      "name": "4. Code & Spec Review Gate",
       "command": "/usr/local/bin/smart-agent",
       "args": [
-        "QA_VISUAL",
-        "Start the application server via `dev-manager-mcp`. Using Playwright MCP and Browser-Use MCP, navigate to the live URL, execute the user flows defined in the EARS scenarios of `specs/`, and visually compare the rendered layout against `ui-mockup.html`. Save desktop/mobile screenshots and console/network logs in `openspec/changes/<slug>/qa-report.md`. If bugs are detected, fix and re-test (max 2 self-healing loops)."
+        "--agent",
+        "spec-auditor",
+        "CODE_REVIEW",
+        "Audit `git diff` against every `SHALL` clause in `openspec/changes/<slug>/specs/`, verify package/lockfile integrity, hunt TODO/stubs/weak asserts. Write `STATUS: APPROVED` or `STATUS: REJECTED` (with file:line items) to `openspec/changes/<slug>/code-review-report.md`. Read-only on source code."
+      ]
+    },
+    {
+      "name": "5. Visual & Functional QA (/opsx:verify)",
+      "command": "/usr/local/bin/smart-agent",
+      "args": [
+        "--agent",
+        "qa-inspector",
+        "QA",
+        "Run `/opsx:verify`. Use the dynamic port in `$QA_PORT` (never :3000/:5000/:8000). Visual QA via Playwright MCP when the change has a UI, otherwise black-box functional QA of the API/CLI. Write evidence and `STATUS: APPROVED` or `STATUS: REJECTED` to `openspec/changes/<slug>/qa-report.md` and terminate every process you spawned."
       ]
     }
   ]

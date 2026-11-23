@@ -37,7 +37,7 @@ else
 fi
 
 echo -n "Testing Pool 3 (AWS Kiro CLI / Amazon Q)... "
-OUT_P3=$(kiro-cli chat --no-interactive --trust-all-tools --model claude-haiku-5.5 "Reply with the exact string: POOL3_OK" 2>&1)
+OUT_P3=$(kiro-cli chat --no-interactive --trust-all-tools --model auto "Reply with the exact string: POOL3_OK" 2>&1)
 if echo "$OUT_P3" | grep -q "POOL3_OK"; then
     echo "✅ [PASS] ($OUT_P3)"
 else

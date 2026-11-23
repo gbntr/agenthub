@@ -236,6 +236,27 @@ Antes que um agente possa marcar `[x]` em um item de `tasks.md` ou solicitar rev
 
 ---
 
+## 🤖 6.1. v2: Agents Especializados, Gate de Review e QA Dual
+
+O pipeline v2 tem **6 estágios**, cada um executado por um agent dedicado (catálogo completo em [`docs/agents-catalog.md`](./docs/agents-catalog.md)), sempre vinculado a `openspec/changes/<slug>/`:
+
+| Estágio | Agent | Saída | Caveman |
+| :--- | :--- | :--- | :-: |
+| 0 `SCOUT` | `repo-scout` | `context-map.md` | `full` |
+| 1 `BRIEFING` | `briefing-analyst` | `proposal.md` (EARS) | `lite` |
+| 2 `SPEC` | `spec-architect` | `specs/`, `tasks.md` (TDD), `design.md`, `ui-mockup.html` | `lite` |
+| 3 `APPLY` | `code-craftsman` | código + testes (não edita `specs/`) | `full` |
+| 4 `CODE_REVIEW` | `spec-auditor` | `code-review-report.md` | `full` |
+| 5 `QA_VISUAL` / `QA_FUNCTIONAL` | `qa-inspector` | `qa-report.md` | `full` |
+
+- **Loop de rejeição persistente:** `STATUS: REJECTED` faz o `smart-agent` reexecutar o `code-craftsman` com o relatório e repetir o gate (`openspec/changes/<slug>/.state.json`, `fcntl.flock`, `max_retries: 2`); depois grava `HALTED_FOR_HUMAN` e sai com código `1`.
+- **QA dual com porta dinâmica:** `QA_VISUAL` se a mudança tem UI, senão `QA_FUNCTIONAL`; servidores usam apenas `$QA_PORT` (nunca `:3000`/`:5000`/`:8000`) e todos os processos são encerrados no `finally`.
+- **Economia de tokens:** `rtk` (saída de terminal), `ast-grep` (busca AST) e Caveman.
+- **Roteamento declarativo:** `config/routing-policy.yaml` + `vllm-sr` `v0.3`.
+- **Roadmap:** [`docs/roadmap.md`](./docs/roadmap.md).
+
+---
+
 ## 📂 7. Estrutura do Repositório
 
 ```text
@@ -248,9 +269,14 @@ agenthub/
 │
 ├── core/                              # Executáveis centrais de orquestração e validação
 │   ├── smart-agent                    # Roteador semântico, gestor de cotas 5h, injetor de UI e fallback
+│   ├── test_smart_agent.sh            # Testes zero-token de roteamento, whitelist e stress de flock
+│   ├── test_gates.sh                  # Simulação zero-token dos gates de review/QA (CLIs falsas)
 │   └── test_all_clis.sh               # Health check automatizado ponta a ponta dos 4 pools (POOL1..POOL4)
 │
 ├── config/                            # Templates de configuração prontos para produção
+│   ├── agents/                        # 6 agents especializados (agy .md + kiro/.json)
+│   ├── caveman/                       # Caveman lite/full rules
+│   ├── routing-policy.yaml            # Quotas, custos, whitelist Kiro e cadeias de candidatos
 │   ├── vibe-kanban/
 │   │   ├── profiles.json              # 4 Perfis de estágio SDD (Briefing, Spec+UI, Apply, Visual QA)
 │   │   └── vibe-kanban.service        # Unidade systemd executando o Vibe Kanban em 0.0.0.0:3000
@@ -269,6 +295,8 @@ agenthub/
 │   └── pipeline-pilot/                # Exemplo real e completo com specs, mockups e relatórios de QA
 │
 └── docs/                              # Documentação técnica aprofundada (em Inglês)
+    ├── agents-catalog.md              # Catálogo dos 6 agents especializados
+    ├── roadmap.md                     # Features futuras (Vault Obsidian, Chatbot de Briefing)
     ├── architecture.md                # Máquina de estados, isolamento Git Worktree e topologia Tailscale
     ├── quota-arbitration.md           # Matriz de roteamento dos 4 pools, multiplicadores Kiro e janela de 5h
     ├── zero-token-gates.md            # Gates de compilação por domínio e sequência de QA Visual Playwright
@@ -339,6 +367,8 @@ Para especificações técnicas detalhadas, consulte o diretório `docs/`:
 - **[Arbitragem Semântica de Cotas (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Matriz completa de roteamento, multiplicadores de crédito do Kiro (`0.06x` a `1.30x`), janela deslizante de 5 horas e fallback em cascata.
 - **[Gates Zero-Token & QA Visual (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Flags de compilação para Web/TypeScript, Sanitizers C/C++, .NET 10 e sequência de inspeção visual com Playwright/Browser-Use MCP.
 - **[Walkthrough do Piloto E2E (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Relatório completo da homologação dos 5 estágios SDD no repositório `examples/pipeline-pilot/` com 100% de cenários EARS aprovados.
+- **[Catálogo de Agents (`docs/agents-catalog.md`)](./docs/agents-catalog.md)** — Função, entradas, saídas, ferramentas, modelo, nível Caveman e poder de rejeição dos 6 agents.
+- **[Roadmap (`docs/roadmap.md`)](./docs/roadmap.md)** — Features futuras: Vault Obsidian híbrido e Chatbot de Briefing no Vibe Kanban.
 - **[Guia de Setup na VM Cloud (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Instruções de provisionamento onda por onda (Ondas 1 a 5) para Ubuntu Linux ARM64 / Oracle Cloud.
 
 ---

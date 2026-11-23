@@ -38,3 +38,6 @@ Thumbs.db
 *.swp
 *.tmp
 /tmp/
+
+# Per-change orchestration lock (state in .state.json is kept)
+**/.state.lock

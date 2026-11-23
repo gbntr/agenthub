@@ -153,3 +153,34 @@ Because Vibe Kanban (`0.0.0.0:3000`) and ephemeral preview servers provide direc
 - The cloud VM’s public firewall blocks inbound traffic on port `3000`.
 - Developers connect over an encrypted WireGuard mesh via **Tailscale** (`http://100.x.y.z:3000`).
 - This enables reviewing `proposal.md`, interacting with `ui-mockup.html` previews, approving Gate 1 / Gate 2, and triggering 1-click merges from a laptop, tablet, or smartphone anywhere in the world.
+
+---
+
+## 6. AgentHub v2: Stage Agents, Review Gate & Dual QA
+
+The lifecycle is extended from 5 to 6 stages, each executed by a dedicated agent (see [`agents-catalog.md`](./agents-catalog.md)):
+
+```mermaid
+flowchart LR
+    S0["0. SCOUT<br/>repo-scout"] --> S1["1. BRIEFING<br/>briefing-analyst"]
+    S1 --> G1{{"Human Gate 1"}}
+    G1 --> S2["2. SPEC<br/>spec-architect"]
+    S2 --> G2{{"Human Gate 2"}}
+    G2 --> S3["3. APPLY<br/>code-craftsman"]
+    S3 --> Z["Zero-Token gate"]
+    Z --> S4["4. CODE_REVIEW<br/>spec-auditor"]
+    S4 -- "STATUS: APPROVED" --> S5["5. QA_VISUAL / QA_FUNCTIONAL<br/>qa-inspector"]
+    S4 -- "REJECTED, retry_count < 2" --> S3
+    S5 -- "REJECTED, retry_count < 2" --> S3
+    S5 -- "STATUS: APPROVED" --> Done(["Merge-ready"])
+    S4 -- "retry_count >= 2" --> H(["HALTED_FOR_HUMAN"])
+    S5 -- "retry_count >= 2" --> H
+```
+
+- **Declarative routing:** models per stage × complexity come from `config/routing-policy.yaml`; quota state is serialized with `fcntl.flock` ([`quota-arbitration.md`](./quota-arbitration.md)).
+- **Persistent rejection loop:** `openspec/changes/<slug>/.state.json` (under flock) stores `retry_count`/`status`; `smart-agent` owns the loop, so it works across separate Vibe Kanban profiles.
+- **Dual QA:** `QA_VISUAL` when the change has a UI, `QA_FUNCTIONAL` otherwise; both run on a dynamic `QA_PORT` in an isolated process group that is always torn down.
+- **Token stack:** `rtk` (terminal output), `ast-grep` (AST search) and Caveman (`lite`/`full`) keep context small.
+- **OpenSpec artifacts** now also include `context-map.md`, `code-review-report.md`, `qa-report.md` and `.state.json`.
+- **Planned features** (Obsidian vault, briefing chatbot): [`roadmap.md`](./roadmap.md).
+
