@@ -73,7 +73,7 @@ flowchart TB
 
 ---
 
-## 3. The 5-Stage SDD State Machine & Dual Human Gates
+## 3. The 6-Stage SDD State Machine & Dual Human Gates
 
 Every task card on Vibe Kanban transitions through a deterministic 5-stage lifecycle with **two mandatory human checkpoints**:
 

@@ -251,7 +251,7 @@ O pipeline v2 tem **6 estágios**, cada um executado por um agent dedicado (cat�
 
 - **Loop de rejeição persistente:** `STATUS: REJECTED` faz o `smart-agent` reexecutar o `code-craftsman` com o relatório e repetir o gate (`openspec/changes/<slug>/.state.json`, `fcntl.flock`, `max_retries: 2`); depois grava `HALTED_FOR_HUMAN` e sai com código `1`.
 - **QA dual com porta dinâmica:** `QA_VISUAL` se a mudança tem UI, senão `QA_FUNCTIONAL`; servidores usam apenas `$QA_PORT` (nunca `:3000`/`:5000`/`:8000`) e todos os processos são encerrados no `finally`.
-- **Economia de tokens:** `rtk` (saída de terminal), `ast-grep` (busca AST) e Caveman.
+- **Stack de tokens & UI:** `rtk` (todos os agents), `ast-grep`, Caveman (`lite`/`full`) e `design-taste-frontend` (`taste-skill`) para `spec-architect` e `code-craftsman`.
 - **Roteamento declarativo:** `config/routing-policy.yaml` + `vllm-sr` `v0.3`.
 - **Roadmap:** [`docs/roadmap.md`](./docs/roadmap.md).
 

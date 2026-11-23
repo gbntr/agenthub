@@ -113,5 +113,5 @@ routes:
 
 # Failure cascade after the selected candidate exits non-zero.
 fallback:
-  tier1: *haiku        # kiro-cli claude-haiku-5.5
+  tier1: *kiro_auto    # kiro-cli auto (whitelisted fallback)
   tier2: copilot       # GitHub Copilot CLI

@@ -18,6 +18,7 @@ Implement `openspec/changes/<slug>/tasks.md` with Spec-First TDD inside the isol
 Application source and tests; `- [x]` marks in `tasks.md` after each task passes.
 
 ## Rules
+- When implementing frontend UI (`ui-mockup.html` present or UI task), follow `~/.agents/skills/design-taste-frontend/SKILL.md` (`taste-skill`).
 - Write the failing test first, then the code. Run the Zero-Token gate (`npx tsc --noEmit`, `npm test`, `pytest`, `gcc -Wall -Wextra -Werror` + `make test`, `dotnet build && dotnet test`) until exit code 0 before marking a task done.
 - **FORBIDDEN to edit `openspec/changes/<slug>/specs/`** to weaken a requirement. Fix the code instead.
 - No stubs, `TODO`/`FIXME` placeholders, hardcoded mock returns, or weakened asserts.

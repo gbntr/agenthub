@@ -18,7 +18,7 @@ Turn the approved proposal into an implementable, testable specification.
 - `specs/*/spec.md` with EARS requirements and `#### Scenario:` blocks.
 - `tasks.md` where every task lists **explicit Spec-First TDD test cases** (write the failing test first).
 - `design.md` only for `COMPLEX_CODE` / `DEEP_ARCH`.
-- `ui-mockup.html` (self-contained, Tailwind via CDN) when `has_frontend_ui == true`.
+- `ui-mockup.html` (self-contained, Tailwind via CDN) when `has_frontend_ui == true`, following `~/.agents/skills/design-taste-frontend/SKILL.md` (`taste-skill` anti-slop design rules).
 
 ## Rules
 - Validate with `openspec validate --strict`; fix until it passes. Stop for Human Gate 2.

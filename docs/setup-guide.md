@@ -139,9 +139,10 @@ Then open your Vibe Kanban board via your Tailscale IP (`http://<tailscale-ip>:3
 
 | Tool | Purpose | Provisioning |
 | :--- | :--- | :--- |
-| **RTK** (`rtk-ai/rtk`) | Compresses verbose shell output (`git`, test runners, compilers) before it enters the agent context | Installer script + `rtk init --global` |
+| **RTK** (`rtk-ai/rtk`) | Compresses verbose shell output (`git`, test runners, compilers) before it enters any agent context | Installer script + `rtk init --global` (`antigravity`, `copilot`, `gemini`, `claude`) |
 | **ast-grep** (`ast-grep`, `@ast-grep/mcp`; use the `ast-grep` binary, since `sg` on Ubuntu is util-linux) | Structural AST search instead of full-file reads | `npm i -g @ast-grep/cli`; MCP server `ast-grep` registered in `config/mcp/mcp.json`, `kiro-mcp.json`, `copilot-mcp-config.json` |
 | **Caveman** (`JuliusBrussee/caveman`) | Terse agent replies: `lite` for Briefing/Spec (keeps EARS intact), `full` for Scout/Apply/Review/QA | `npx skills add JuliusBrussee/caveman -g`; rules in [`config/caveman/`](../config/caveman/) copied to `~/.config/agenthub/caveman/` |
+| **Taste Skill** (`leonxlnx/taste-skill@design-taste-frontend`) | Anti-slop UI guidelines for `spec-architect` (`ui-mockup.html`) and `code-craftsman` (frontend code) | `npx skills add leonxlnx/taste-skill@design-taste-frontend -g` |
 
 Provisioning also runs `smart-agent --auto-update` once (CLI updates and `~/.cache/agenthub/models.json` refresh); schedule it periodically, never on the task path. See [`quota-arbitration.md`](./quota-arbitration.md#7-out-of-band-auto-update---auto-update).
 
