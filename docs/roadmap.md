@@ -24,6 +24,19 @@
 
 **Out of scope for now:** the Vibe Kanban server source is not modified and no chat UI is added.
 
+
+## Future Feature 7 — DevOps Agent & Infrastructure Control (Pending)
+
+**Goal:** add a dedicated DevOps agent and operational control plane to manage CI/CD, runtime services, and safe deployments without manual SSH babysitting.
+
+- **Scope (planned):**
+  - CI/CD pipeline monitoring & triage (GitHub Actions, release tagging, PR checks).
+  - Service & host health checks (`systemd` units such as `vibe-kanban`, `vllm-sr`, disk/RAM/port diagnostics, log inspection via `rtk`).
+  - Controlled deployment & rollback workflows gated by explicit human approval before any production or infrastructure mutation.
+  - Zero-secret discipline: uses existing OAuth/environment bindings, never persists credentials in repo artifacts.
+
+**Status:** pending (out of scope for the v2 initial pilot — documentation only).
+
 ## Explicitly not planned
 
 - **Automatic spec archiving (`openspec archive`):** agents receive `openspec/changes/<slug>/` explicitly, so no archive step is required.

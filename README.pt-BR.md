@@ -368,7 +368,7 @@ Para especificações técnicas detalhadas, consulte o diretório `docs/`:
 - **[Gates Zero-Token & QA Visual (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Flags de compilação para Web/TypeScript, Sanitizers C/C++, .NET 10 e sequência de inspeção visual com Playwright/Browser-Use MCP.
 - **[Walkthrough do Piloto E2E (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Relatório completo da homologação dos 5 estágios SDD no repositório `examples/pipeline-pilot/` com 100% de cenários EARS aprovados.
 - **[Catálogo de Agents (`docs/agents-catalog.md`)](./docs/agents-catalog.md)** — Função, entradas, saídas, ferramentas, modelo, nível Caveman e poder de rejeição dos 6 agents.
-- **[Roadmap (`docs/roadmap.md`)](./docs/roadmap.md)** — Features futuras: Vault Obsidian híbrido e Chatbot de Briefing no Vibe Kanban.
+- **[Roadmap (`docs/roadmap.md`)](./docs/roadmap.md)** — Features futuras (pendentes): Vault Obsidian híbrido, Chatbot de Briefing no Vibe Kanban e Agent & Controle de DevOps.
 - **[Guia de Setup na VM Cloud (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Instruções de provisionamento onda por onda (Ondas 1 a 5) para Ubuntu Linux ARM64 / Oracle Cloud.
 
 ---
