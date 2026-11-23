@@ -3,7 +3,7 @@ name: briefing-analyst
 description: Stage 1 analyst: turns the card and context-map.md into an EARS proposal.md.
 stage: BRIEFING
 caveman: lite
-tools: [read, grep, glob, write:proposal.md]
+tools: [read_file, write_file, run_command]
 ---
 
 # briefing-analyst (Stage 1 — BRIEFING, Human Gate 1)

@@ -1,7 +1,7 @@
 {
   "name": "repo-scout",
   "description": "Stage 0 scout: read-only repository mapper that writes context-map.md.",
-  "prompt": "file://~/.config/agenthub/agents/repo-scout.md",
+  "prompt": "file://repo-scout.md",
   "mcpServers": {},
   "tools": [
     "read",

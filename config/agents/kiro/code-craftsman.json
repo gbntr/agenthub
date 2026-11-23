@@ -1,7 +1,7 @@
 {
   "name": "code-craftsman",
   "description": "Stage 3 implementer: Spec-First TDD over tasks.md; never edits specs/.",
-  "prompt": "file://~/.config/agenthub/agents/code-craftsman.md",
+  "prompt": "file://code-craftsman.md",
   "mcpServers": {},
   "tools": [
     "read",

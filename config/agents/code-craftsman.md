@@ -3,7 +3,7 @@ name: code-craftsman
 description: Stage 3 implementer: Spec-First TDD over tasks.md; never edits specs/.
 stage: APPLY
 caveman: full
-tools: [read, write, grep, glob, shell, ast-grep]
+tools: [read_file, edit_file, write_file, run_command, manage_task]
 ---
 
 # code-craftsman (Stage 3 — APPLY)

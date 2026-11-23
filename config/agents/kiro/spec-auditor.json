@@ -1,7 +1,7 @@
 {
   "name": "spec-auditor",
   "description": "Stage 4 auditor: read-only reviewer that writes STATUS: APPROVED|REJECTED to code-review-report.md.",
-  "prompt": "file://~/.config/agenthub/agents/spec-auditor.md",
+  "prompt": "file://spec-auditor.md",
   "mcpServers": {},
   "tools": [
     "read",

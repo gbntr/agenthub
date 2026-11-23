@@ -3,7 +3,7 @@ name: qa-inspector
 description: Stage 5 QA: visual (Playwright MCP) or black-box functional QA on a dynamic QA_PORT, with mandatory teardown.
 stage: QA_VISUAL / QA_FUNCTIONAL
 caveman: full
-tools: [read, grep, glob, shell, write:qa-report.md, playwright, browser-use]
+tools: [read_file, write_file, run_command, manage_task]
 ---
 
 # qa-inspector (Stage 5 — QA_VISUAL / QA_FUNCTIONAL)

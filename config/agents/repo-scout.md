@@ -3,7 +3,7 @@ name: repo-scout
 description: Stage 0 scout: read-only repository mapper that writes context-map.md.
 stage: SCOUT
 caveman: full
-tools: [read, grep, glob, shell, ast-grep]
+tools: [read_file, write_file, run_command]
 ---
 
 # repo-scout (Stage 0 — SCOUT)

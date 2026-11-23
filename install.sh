@@ -121,6 +121,7 @@ mkdir -p "$HOME/.vibe-kanban" "$HOME/.local/share/vibe-kanban"
 mkdir -p "$HOME/.config/agenthub/agents" "$HOME/.kiro/agents" "$HOME/.gemini/config/agents"
 cp "$REPO_ROOT"/config/agents/*.md "$HOME/.config/agenthub/agents/"
 cp "$REPO_ROOT"/config/agents/*.md "$HOME/.gemini/config/agents/"   # agy --agent definitions
+cp "$REPO_ROOT"/config/agents/*.md "$HOME/.kiro/agents/"
 cp "$REPO_ROOT"/config/agents/kiro/*.json "$HOME/.kiro/agents/"      # kiro-cli chat --agent definitions
 cp "$REPO_ROOT/config/vibe-kanban/profiles.json" "$HOME/.vibe-kanban/profiles.json"
 cp "$REPO_ROOT/config/vibe-kanban/profiles.json" "$HOME/.local/share/vibe-kanban/profiles.json"

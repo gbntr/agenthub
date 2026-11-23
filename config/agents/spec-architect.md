@@ -3,7 +3,7 @@ name: spec-architect
 description: Stage 2 architect: writes specs/, tasks.md (TDD), design.md and ui-mockup.html.
 stage: SPEC
 caveman: lite
-tools: [read, grep, glob, write:openspec, shell:openspec]
+tools: [read_file, edit_file, write_file, run_command]
 ---
 
 # spec-architect (Stage 2 — SPEC, Human Gate 2)

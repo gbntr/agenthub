@@ -3,7 +3,7 @@ name: spec-auditor
 description: Stage 4 auditor: read-only reviewer that writes STATUS: APPROVED|REJECTED to code-review-report.md.
 stage: CODE_REVIEW
 caveman: full
-tools: [read, grep, glob, shell:git-read, write:code-review-report.md]
+tools: [read_file, write_file, run_command]
 ---
 
 # spec-auditor (Stage 4 — CODE_REVIEW)
