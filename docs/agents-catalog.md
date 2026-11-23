@@ -10,7 +10,7 @@
 
 - **Active spec binding:** `smart-agent` appends `[ACTIVE SPEC]: openspec/changes/<slug>/` to every prompt (slug from `--slug`, `$AGENTHUB_CHANGE`, or the most recent `openspec/changes/<slug>/`). Agents read and write artifacts only there. There is no archiving step: the path is passed explicitly.
 - **Least privilege:** each agent lists only the tools it needs; scouts and auditors never write application code.
-- **Token economy:** shell through `rtk`, structural search through `ast-grep`, Caveman level per stage (`lite` keeps EARS clauses intact; `full` is telegraphic).
+- **Token & UI economy:** shell through `rtk` (all agents), structural search through `ast-grep`, Caveman level per stage (`lite` keeps EARS clauses intact; `full` is telegraphic), and `design-taste-frontend` (`taste-skill`) for `spec-architect` and `code-craftsman` on UI tasks.
 - **Models:** chosen declaratively per stage × complexity in [`config/routing-policy.yaml`](../config/routing-policy.yaml) (see [`quota-arbitration.md`](./quota-arbitration.md)). Default agent per stage lives in `stage_agents`.
 
 ## 2. Summary

@@ -100,7 +100,12 @@ if ! command -v rtk >/dev/null 2>&1; then
   echo "   -> Installing RTK (rtk-ai/rtk)..."
   curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh || true
 fi
-command -v rtk >/dev/null 2>&1 && { rtk init --global </dev/null || true; }
+if command -v rtk >/dev/null 2>&1; then
+  rtk init --global --auto-patch </dev/null || true
+  rtk init --global --agent antigravity --auto-patch </dev/null || true
+  rtk init --global --copilot --auto-patch </dev/null || true
+  rtk init --global --gemini --auto-patch </dev/null || true
+fi
 
 # NOTE: on Ubuntu `sg` is util-linux; detect the real binary via `ast-grep`.
 if ! command -v ast-grep >/dev/null 2>&1; then
@@ -110,6 +115,7 @@ fi
 
 echo "   -> Installing Caveman (JuliusBrussee/caveman) + stage rules (lite / full)..."
 npx -y skills add JuliusBrussee/caveman -g -y </dev/null || true
+npx -y skills add leonxlnx/taste-skill@design-taste-frontend -g -y </dev/null || true
 mkdir -p "$HOME/.config/agenthub/caveman"
 cp "$REPO_ROOT/config/caveman/lite.md" "$REPO_ROOT/config/caveman/full.md" "$HOME/.config/agenthub/caveman/"
 

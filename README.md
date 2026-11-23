@@ -27,7 +27,7 @@
 2. [Core Architectural Pillars](#-2-core-architectural-pillars)
 3. [System Architecture & Mermaid Workflows](#-3-system-architecture--mermaid-workflows)
    - [3.1. End-to-End Infrastructure & Network Topology](#31-end-to-end-infrastructure--network-topology)
-   - [3.2. The 5-Stage SDD State Machine & Human Approval Gates](#32-the-5-stage-sdd-state-machine--human-approval-gates)
+   - [3.2. The 6-Stage SDD State Machine & Human Approval Gates](#32-the-6-stage-sdd-state-machine--human-approval-gates)
    - [3.3. Semantic Router & 4-Pool Quota Arbitrage Decision Tree](#33-semantic-router--4-pool-quota-arbitrage-decision-tree)
 4. [Ecosystem & Integrated Repositories Deep Dive](#-4-ecosystem--integrated-repositories-deep-dive)
 5. [Multi-CLI Quota Arbitrage Matrix](#-5-multi-cli-quota-arbitrage-matrix)
@@ -113,7 +113,7 @@ flowchart TB
 
 ---
 
-### 3.2. The 5-Stage SDD State Machine & Human Approval Gates
+### 3.2. The 6-Stage SDD State Machine & Human Approval Gates
 
 ```mermaid
 flowchart TD
@@ -251,7 +251,7 @@ The v2 pipeline has **6 stages**, each run by a dedicated agent (full catalog: [
 
 - **Persistent rejection loop:** `STATUS: REJECTED` makes `smart-agent` re-run `code-craftsman` with the report and repeat the gate (`openspec/changes/<slug>/.state.json`, `fcntl.flock`, `max_retries: 2`); then it writes `HALTED_FOR_HUMAN` and exits `1`.
 - **Dual QA with dynamic port:** `QA_VISUAL` if the change has a UI, otherwise `QA_FUNCTIONAL`; servers use only `$QA_PORT` (never `:3000`/`:5000`/`:8000`) and every process is killed in a `finally` block.
-- **Token economy:** `rtk` (terminal output), `ast-grep` (AST search) and Caveman.
+- **Token & UI stack:** `rtk` (all agents), `ast-grep`, Caveman (`lite`/`full`), and `design-taste-frontend` (`taste-skill`) for `spec-architect` & `code-craftsman`.
 - **Declarative routing:** `config/routing-policy.yaml` + `vllm-sr` `v0.3`.
 - **Roadmap:** [`docs/roadmap.md`](./docs/roadmap.md).
 
@@ -363,10 +363,10 @@ http://<your-tailscale-ip>:3000
 
 For deeper technical specifications, explore the `docs/` directory:
 
-- **[Architecture & State Machine (`docs/architecture.md`)](./docs/architecture.md)** — Detailed breakdown of Git Worktree isolation, the 5-stage SDD lifecycle, OpenSpec directory contracts, and Tailscale zero-trust networking.
+- **[Architecture & State Machine (`docs/architecture.md`)](./docs/architecture.md)** — Detailed breakdown of Git Worktree isolation, the 6-stage SDD lifecycle, OpenSpec directory contracts, and Tailscale zero-trust networking.
 - **[Semantic Quota Arbitrage (`docs/quota-arbitration.md`)](./docs/quota-arbitration.md)** — Complete routing matrix, Kiro credit multipliers (`0.06x` to `1.30x`), 5-hour sliding window math, and cascading fallback logic.
 - **[Zero-Token Gates & Visual QA (`docs/zero-token-gates.md`)](./docs/zero-token-gates.md)** — Compiler flags for Web/TypeScript, C/C++ Sanitizers, .NET 10, and the Playwright/Browser-Use MCP visual inspection sequence.
-- **[E2E Pilot Walkthrough (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Complete step-by-step homologation report of the 5-stage SDD lifecycle on `examples/pipeline-pilot/` with 100% EARS scenarios passed.
+- **[E2E Pilot Walkthrough (`docs/e2e-walkthrough.md`)](./docs/e2e-walkthrough.md)** — Complete step-by-step homologation report of the 6-stage SDD lifecycle on `examples/pipeline-pilot/` with 100% EARS scenarios passed.
 - **[Agent Catalog (`docs/agents-catalog.md`)](./docs/agents-catalog.md)** — Role, inputs, outputs, tools, model, Caveman level and rejection power of the 6 agents.
 - **[Roadmap (`docs/roadmap.md`)](./docs/roadmap.md)** — Future features: hybrid Obsidian vault and Briefing chatbot in Vibe Kanban.
 - **[Cloud VM Setup Guide (`docs/setup-guide.md`)](./docs/setup-guide.md)** — Wave-by-wave provisioning instructions (Waves 1 through 5) for Ubuntu Linux ARM64 / Oracle Cloud.
